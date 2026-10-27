@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#2563EB"/>
+  <!-- Flask Body & Neck -->
+  <path d="M216 110 h80 v115 l95 155 a32 32 0 0 1 -27 48 H148 a32 32 0 0 1 -27 -48 l95 -155 Z" fill="#FFFFFF"/>
+  <!-- Flask Lip/Rim -->
+  <rect x="200" y="90" width="112" height="24" rx="12" fill="#FFFFFF"/>
+  <!-- Chemical Liquid -->
+  <path d="M175 320 l65 -15 c30 5 45 5 75 -10 l22 35 a24 24 0 0 1 -3 28 l-5 8 a24 24 0 0 1 -20 10 H203 a24 24 0 0 1 -20 -10 Z" fill="#38BDF8"/>
+  <circle cx="280" cy="360" r="14" fill="#FFFFFF" opacity="0.9"/>
+  <circle cx="230" cy="385" r="10" fill="#FFFFFF" opacity="0.9"/>
+  <!-- Measurement ticks -->
+  <line x1="285" y1="260" x2="305" y2="260" stroke="#2563EB" stroke-width="6" stroke-linecap="round"/>
+  <line x1="270" y1="290" x2="295" y2="290" stroke="#2563EB" stroke-width="6" stroke-linecap="round"/>
+</svg>

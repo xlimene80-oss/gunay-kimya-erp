@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light Theme Base Variables */
+  --bg: #F5F7FB;
+  --bg-rgb: 245, 247, 251;
+  --surface: #FFFFFF;
+  --surface-rgb: 255, 255, 255;
+  --border: #E2E8F0;
+  --border-rgb: 226, 232, 240;
+  --text: #0F172A;
+  --text-rgb: 15, 23, 42;
+  --text-muted: #64748B;
+  --text-muted-rgb: 100, 116, 139;
+
+  /* Primary */
+  --primary: #2563EB;
+  --primary-rgb: 37, 99, 235;
+  --primary-soft: #EFF6FF;
+  --primary-soft-rgb: 239, 246, 255;
+  --primary-text: #1D4ED8;
+  --primary-border: #BFDBFE;
+  --primary-hover: #1D4ED8;
+
+  /* Module Colors */
+  --mod-uretim: #2563EB;
+  --mod-uretim-rgb: 37, 99, 235;
+  --mod-uretim-soft: #EFF6FF;
+  --mod-uretim-soft-rgb: 239, 246, 255;
+  --mod-uretim-text: #1D4ED8;
+  --mod-uretim-border: #BFDBFE;
+
+  --mod-stok: #0891B2;
+  --mod-stok-rgb: 8, 145, 178;
+  --mod-stok-soft: #ECFEFF;
+  --mod-stok-soft-rgb: 236, 254, 255;
+  --mod-stok-text: #0E7490;
+  --mod-stok-border: #A5F3FC;
+
+  --mod-satis: #7C3AED;
+  --mod-satis-rgb: 124, 58, 237;
+  --mod-satis-soft: #F5F3FF;
+  --mod-satis-soft-rgb: 245, 243, 255;
+  --mod-satis-text: #6D28D9;
+  --mod-satis-border: #DDD6FE;
+
+  --mod-finans: #DB2777;
+  --mod-finans-rgb: 219, 39, 119;
+  --mod-finans-soft: #FDF2F8;
+  --mod-finans-soft-rgb: 253, 242, 248;
+  --mod-finans-text: #BE185D;
+  --mod-finans-border: #FBCFE8;
+
+  /* State Colors */
+  --success: #16A34A;
+  --success-rgb: 22, 163, 74;
+  --success-soft: #F0FDF4;
+  --success-soft-rgb: 240, 253, 244;
+  --success-text: #166534;
+  --success-border: #BBF7D0;
+
+  --warning: #D97706;
+  --warning-rgb: 217, 119, 6;
+  --warning-soft: #FFFBEB;
+  --warning-soft-rgb: 255, 251, 235;
+  --warning-text: #92400E;
+  --warning-border: #FDE68A;
+
+  --danger: #DC2626;
+  --danger-rgb: 220, 38, 38;
+  --danger-soft: #FEF2F2;
+  --danger-soft-rgb: 254, 242, 242;
+  --danger-text: #991B1B;
+  --danger-border: #FECACA;
+  --danger-hover: #B91C1C;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media print {
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 6mm;
+  }
+}

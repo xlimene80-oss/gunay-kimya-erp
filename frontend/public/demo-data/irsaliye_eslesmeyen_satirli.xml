@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DespatchAdvice xmlns="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2"
+                xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+    <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+    <cbc:CustomizationID>TR1.2</cbc:CustomizationID>
+    <cbc:ProfileID>TEMELIRSALIYE</cbc:ProfileID>
+    <cbc:ID>KOR202600009142</cbc:ID>
+    <cbc:CopyIndicator>false</cbc:CopyIndicator>
+    <cbc:UUID>c92f4b58-49f3-5a7c-ad3c-3967a8102345</cbc:UUID>
+    <cbc:IssueDate>2026-10-27</cbc:IssueDate>
+    <cbc:IssueTime>14:15:00</cbc:IssueTime>
+    <cbc:DespatchAdviceTypeCode>SEVK</cbc:DespatchAdviceTypeCode>
+    <cac:DespatchSupplierParty>
+        <cac:Party>
+            <cac:PartyIdentification>
+                <cbc:ID schemeID="VKN">5770023419</cbc:ID>
+            </cac:PartyIdentification>
+            <cac:PartyName>
+                <cbc:Name>Koruma Klor Alkali San. ve Tic. A.Ş.</cbc:Name>
+            </cac:PartyName>
+            <cac:PostalAddress>
+                <cbc:CitySubdivisionName>Derince</cbc:CitySubdivisionName>
+                <cbc:CityName>Kocaeli</cbc:CityName>
+                <cac:Country>
+                    <cbc:Name>Türkiye</cbc:Name>
+                </cac:Country>
+            </cac:PostalAddress>
+        </cac:Party>
+    </cac:DespatchSupplierParty>
+    <cac:DeliveryCustomerParty>
+        <cac:Party>
+            <cac:PartyIdentification>
+                <cbc:ID schemeID="VKN">3840291823</cbc:ID>
+            </cac:PartyIdentification>
+            <cac:PartyName>
+                <cbc:Name>Günay Kimya Sanayi ve Ticaret A.Ş.</cbc:Name>
+            </cac:PartyName>
+            <cac:PostalAddress>
+                <cbc:CitySubdivisionName>Kemalpaşa</cbc:CitySubdivisionName>
+                <cbc:CityName>İzmir</cbc:CityName>
+                <cac:Country>
+                    <cbc:Name>Türkiye</cbc:Name>
+                </cac:Country>
+            </cac:PostalAddress>
+        </cac:Party>
+    </cac:DeliveryCustomerParty>
+    <cac:Shipment>
+        <cbc:ID>1</cbc:ID>
+        <cac:Delivery>
+            <cac:DeliveryAddress>
+                <cbc:StreetName>Kemalpaşa OSB 4. Cadde No:12</cbc:StreetName>
+                <cbc:CityName>İzmir</cbc:CityName>
+            </cac:DeliveryAddress>
+        </cac:Delivery>
+    </cac:Shipment>
+    <cac:DespatchLine>
+        <cbc:ID>1</cbc:ID>
+        <cbc:DeliveredQuantity unitCode="KGM">4000.000</cbc:DeliveredQuantity>
+        <cac:Item>
+            <cbc:Name>Sıvı Kostik Soda %48 (NaOH)</cbc:Name>
+            <cac:SellersItemIdentification>
+                <cbc:ID>NAOH-48</cbc:ID>
+            </cac:SellersItemIdentification>
+            <cac:ItemInstance>
+                <cac:LotIdentification>
+                    <cbc:LotNumberID>LOT-KOR-2026-081</cbc:LotNumberID>
+                    <cbc:ExpiryDate>2028-10-27</cbc:ExpiryDate>
+                </cac:LotIdentification>
+            </cac:ItemInstance>
+        </cac:Item>
+    </cac:DespatchLine>
+    <cac:DespatchLine>
+        <cbc:ID>2</cbc:ID>
+        <cbc:DeliveredQuantity unitCode="KGM">2500.000</cbc:DeliveredQuantity>
+        <cac:Item>
+            <cbc:Name>Sodyum Hipoklorit %15 (Klor)</cbc:Name>
+            <cac:SellersItemIdentification>
+                <cbc:ID>SODYUM-HIPO</cbc:ID>
+            </cac:SellersItemIdentification>
+            <cac:ItemInstance>
+                <cac:LotIdentification>
+                    <cbc:LotNumberID>LOT-KOR-2026-082</cbc:LotNumberID>
+                    <cbc:ExpiryDate>2027-04-27</cbc:ExpiryDate>
+                </cac:LotIdentification>
+            </cac:ItemInstance>
+        </cac:Item>
+    </cac:DespatchLine>
+    <cac:DespatchLine>
+        <cbc:ID>3</cbc:ID>
+        <cbc:DeliveredQuantity unitCode="KGM">1200.000</cbc:DeliveredQuantity>
+        <cac:Item>
+            <cbc:Name>Özel Sanayi Tipi Klor Gazı Nötralize Reaktanı (Eşleşmeyen Kalem)</cbc:Name>
+            <cac:SellersItemIdentification>
+                <cbc:ID>UNKNOWN-CHEM-X99</cbc:ID>
+            </cac:SellersItemIdentification>
+            <cac:ItemInstance>
+                <cac:LotIdentification>
+                    <cbc:LotNumberID>LOT-KOR-2026-083</cbc:LotNumberID>
+                    <cbc:ExpiryDate>2027-12-31</cbc:ExpiryDate>
+                </cac:LotIdentification>
+            </cac:ItemInstance>
+        </cac:Item>
+    </cac:DespatchLine>
+</DespatchAdvice>
