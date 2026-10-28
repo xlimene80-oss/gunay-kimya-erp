@@ -50,10 +50,20 @@ export default defineConfig({
         ]
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         runtimeCaching: [
           {
-            urlPattern: ({ request }) => request.destination === 'document',
+            urlPattern: ({ url }) => url.pathname.startsWith('/api'),
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: ({ request, url }) =>
+              request.destination === 'document' ||
+              url.pathname === '/' ||
+              url.pathname.endsWith('index.html'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'html-cache',

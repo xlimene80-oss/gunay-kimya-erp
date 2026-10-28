@@ -25,6 +25,7 @@ import { GoodsReceiptManagement } from './views/GoodsReceiptManagement';
 import { PackagingStation } from './views/PackagingStation';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
+import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 
 const MainShell: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -232,6 +233,7 @@ export const App: React.FC = () => {
   return (
     <AuthProvider>
       <MainShell />
+      <PWAUpdatePrompt />
     </AuthProvider>
   );
 };
