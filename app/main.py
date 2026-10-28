@@ -32,6 +32,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[STARTUP QUALITY MIGRATION ERROR] Quality module migration notice: {e}")
 
+    # 5. Ensure Hazmat & Warehouse Zones columns, tables and seed data are migrated
+    try:
+        from app.hazmat_migration import run_hazmat_migration
+        await run_hazmat_migration()
+    except Exception as e:
+        print(f"[STARTUP HAZMAT MIGRATION ERROR] Hazmat module migration notice: {e}")
+
     yield
     # Shutdown: Dispose engine connection pool
     await engine.dispose()

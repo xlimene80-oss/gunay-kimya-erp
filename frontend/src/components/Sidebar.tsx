@@ -25,6 +25,7 @@ import {
   ClipboardCheck,
   FileSpreadsheet,
   Award,
+  Warehouse,
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -114,6 +115,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'products_raw_materials',
           label: 'Ürünler & Hammaddeler',
           icon: Layers,
+          roles: ['admin', 'depo']
+        },
+        {
+          id: 'warehouse_layout',
+          label: 'Depo Yerleşimi',
+          icon: Warehouse,
           roles: ['admin', 'depo']
         },
         {

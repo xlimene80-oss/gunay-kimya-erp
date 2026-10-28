@@ -32,6 +32,9 @@ interface DespatchLine {
   matched_item_unit?: string | null;
   suggested_lot_number: string;
   suggested_expiry_date?: string | null;
+  chosen_bin_id?: number | null;
+  chosen_bin_code?: string | null;
+  override_reason?: string;
 }
 
 interface DespatchPreview {
@@ -68,6 +71,17 @@ interface MasterItem {
   unit: string;
   category: string;
   shelf_life_days?: number;
+  storage_class?: string;
+  requires_incoming_qc?: boolean;
+}
+
+interface WarehouseBin {
+  id: number;
+  bin_code: string;
+  zone_id: number;
+  zone_name: string;
+  storage_class: string;
+  is_active: boolean;
 }
 
 export const GoodsReceiptManagement: React.FC = () => {
@@ -77,6 +91,8 @@ export const GoodsReceiptManagement: React.FC = () => {
   
   // Master Items for manual row matching
   const [masterItems, setMasterItems] = useState<MasterItem[]>([]);
+  // Warehouse Bins
+  const [bins, setBins] = useState<WarehouseBin[]>([]);
 
   // Preview state
   const [preview, setPreview] = useState<DespatchPreview | null>(null);
@@ -95,18 +111,54 @@ export const GoodsReceiptManagement: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
 
-  // Fetch master items on mount
+  // Fetch master items and warehouse bins on mount
   useEffect(() => {
-    const fetchMasterItems = async () => {
+    const fetchData = async () => {
       try {
-        const res = await axios.get('/api/v1/items/?limit=300');
-        setMasterItems(res.data || []);
+        const [itemsRes, binsRes] = await Promise.all([
+          axios.get('/api/v1/items/?limit=300'),
+          axios.get('/api/v1/hazmat/bins')
+        ]);
+        setMasterItems(itemsRes.data || []);
+        setBins(binsRes.data || []);
       } catch (err) {
-        console.error('Master ürün listesi alınamadı:', err);
+        console.error('Master veriler veya depo rafları alınamadı:', err);
       }
     };
-    fetchMasterItems();
+    fetchData();
   }, []);
+
+  const getSuggestedBin = (itemId?: number | null, availableBins: WarehouseBin[] = bins): WarehouseBin | undefined => {
+    if (!itemId || availableBins.length === 0) return availableBins[0];
+    const item = masterItems.find((it) => it.id === itemId);
+    if (!item) return availableBins[0];
+
+    // 1. If incoming QC required -> quarantine bin
+    if (item.requires_incoming_qc) {
+      const qBin = availableBins.find((b) => b.storage_class === 'Karantina' && b.is_active);
+      if (qBin) return qBin;
+    }
+
+    // 2. Exact storage class match
+    if (item.storage_class) {
+      const match = availableBins.find((b) => b.storage_class === item.storage_class && b.is_active);
+      if (match) return match;
+    }
+
+    // 3. Fallback to Genel Depo or first active
+    return availableBins.find((b) => b.storage_class === 'Genel' && b.is_active) || availableBins[0];
+  };
+
+  const isBinMismatched = (itemId?: number | null, binId?: number | null): boolean => {
+    if (!itemId || !binId) return false;
+    const item = masterItems.find((it) => it.id === itemId);
+    const bin = bins.find((b) => b.id === binId);
+    if (!item || !bin) return false;
+
+    if (item.requires_incoming_qc && bin.storage_class !== 'Karantina') return true;
+    if (item.storage_class && bin.storage_class !== item.storage_class) return true;
+    return false;
+  };
 
   // Fetch history when history tab is opened
   const fetchHistory = async () => {
@@ -135,7 +187,17 @@ export const GoodsReceiptManagement: React.FC = () => {
       const res = await axios.post('/api/v1/inventory/goods-receipt/parse-xml', {
         xml_content: xmlString
       });
-      setPreview(res.data);
+      const parsedData: DespatchPreview = res.data;
+      const enrichedLines = (parsedData.lines || []).map((line) => {
+        const suggested = getSuggestedBin(line.matched_item_id);
+        return {
+          ...line,
+          chosen_bin_id: suggested?.id || null,
+          chosen_bin_code: suggested?.bin_code || null,
+          override_reason: ''
+        };
+      });
+      setPreview({ ...parsedData, lines: enrichedLines });
       setReceiptNotes(`UBL-TR e-İrsaliye (${res.data.dispatch_number}) ile depoya kabul kaydı.`);
     } catch (err: any) {
       const detail = err.response?.data?.detail || 'XML dosyası ayrıştırılamadı. Lütfen geçerli bir UBL-TR e-İrsaliye dosyası yükleyiniz.';
@@ -193,6 +255,12 @@ export const GoodsReceiptManagement: React.FC = () => {
     line.matched_item_name = selectedItem ? selectedItem.name : null;
     line.matched_item_unit = selectedItem ? selectedItem.unit : null;
 
+    // Suggest appropriate bin
+    const suggested = getSuggestedBin(selectedItem?.id);
+    line.chosen_bin_id = suggested?.id || null;
+    line.chosen_bin_code = suggested?.bin_code || null;
+    line.override_reason = '';
+
     // Recalculate expiry if not manually set
     if (selectedItem && selectedItem.shelf_life_days && preview.issue_date) {
       try {
@@ -202,6 +270,22 @@ export const GoodsReceiptManagement: React.FC = () => {
       } catch {}
     }
 
+    setPreview({ ...preview, lines: updatedLines });
+  };
+
+  const handleLineBinChange = (lineIndex: number, binId: number) => {
+    if (!preview) return;
+    const selectedBin = bins.find((b) => b.id === binId);
+    const updatedLines = [...preview.lines];
+    updatedLines[lineIndex].chosen_bin_id = selectedBin ? selectedBin.id : null;
+    updatedLines[lineIndex].chosen_bin_code = selectedBin ? selectedBin.bin_code : null;
+    setPreview({ ...preview, lines: updatedLines });
+  };
+
+  const handleLineOverrideReasonChange = (lineIndex: number, reason: string) => {
+    if (!preview) return;
+    const updatedLines = [...preview.lines];
+    updatedLines[lineIndex].override_reason = reason;
     setPreview({ ...preview, lines: updatedLines });
   };
 
@@ -234,6 +318,18 @@ export const GoodsReceiptManagement: React.FC = () => {
       return;
     }
 
+    // Validate mismatch reasons
+    for (const l of preview.lines) {
+      if (isBinMismatched(l.matched_item_id, l.chosen_bin_id)) {
+        if (!l.override_reason || !l.override_reason.trim()) {
+          setErrorMessage(
+            `Satır ${l.line_number} (${l.item_name}) depolama sınıfı ile seçilen raf uyuşmuyor. Devam edebilmek için lütfen satırın gerekçesini yazınız.`
+          );
+          return;
+        }
+      }
+    }
+
     setConfirmingLoading(true);
     setErrorMessage(null);
 
@@ -249,7 +345,10 @@ export const GoodsReceiptManagement: React.FC = () => {
         batch_number: l.suggested_lot_number.trim(),
         quantity: l.delivered_quantity,
         expiration_date: l.suggested_expiry_date || null,
-        unit_price: 0
+        unit_price: 0,
+        bin_id: l.chosen_bin_id || undefined,
+        bin_code: l.chosen_bin_code || undefined,
+        override_reason: l.override_reason || undefined
       }))
     };
 
@@ -614,6 +713,7 @@ export const GoodsReceiptManagement: React.FC = () => {
                         <th className="py-3 px-4">İrsaliyedeki Ürün & Kodu</th>
                         <th className="py-3 px-4">Sistem Stok Eşleşmesi</th>
                         <th className="py-3 px-4 text-right">Miktar</th>
+                        <th className="py-3 px-4">Hedef Depo Rafı</th>
                         <th className="py-3 px-4">Lot / Parti Numarası</th>
                         <th className="py-3 px-4">Son Kullanma Tarihi (SKT)</th>
                       </tr>
@@ -689,6 +789,47 @@ export const GoodsReceiptManagement: React.FC = () => {
                             {/* Delivered Quantity */}
                             <td className="py-3 px-4 text-right font-mono font-bold text-sm text-text">
                               {Number(line.delivered_quantity).toLocaleString('tr-TR')} {line.unit_code}
+                            </td>
+
+                            {/* Target Shelf / Bin Selector */}
+                            <td className="py-3 px-4 min-w-[210px]">
+                              {isMatched ? (
+                                <div className="space-y-1.5">
+                                  <select
+                                    value={line.chosen_bin_id || ''}
+                                    onChange={(e) => handleLineBinChange(idx, Number(e.target.value))}
+                                    className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-xs text-text focus:outline-none focus:border-primary font-medium"
+                                  >
+                                    <option value="">-- Raf Seçiniz --</option>
+                                    {bins.map((b) => (
+                                      <option key={b.id} value={b.id}>
+                                        {b.bin_code} ({b.zone_name} • {b.storage_class})
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  {/* Mismatch Warning & Justification */}
+                                  {isBinMismatched(line.matched_item_id, line.chosen_bin_id) && (
+                                    <div className="p-2 bg-danger-soft border border-danger-border rounded-lg space-y-1">
+                                      <div className="text-[10px] text-danger font-semibold flex items-start gap-1">
+                                        <AlertTriangle className="w-3.5 h-3.5 text-danger shrink-0 mt-0.5" />
+                                        <span>
+                                          Bu ürün {masterItems.find((m) => m.id === line.matched_item_id)?.storage_class || 'Genel'} sınıfında, seçilen raf {bins.find((b) => b.id === line.chosen_bin_id)?.zone_name || 'farklı bölge'}.
+                                        </span>
+                                      </div>
+                                      <input
+                                        type="text"
+                                        value={line.override_reason || ''}
+                                        onChange={(e) => handleLineOverrideReasonChange(idx, e.target.value)}
+                                        placeholder="Yerleşim gerekçesi (zorunlu)..."
+                                        className="w-full text-[11px] px-2 py-1 bg-surface border border-danger-border rounded text-text font-medium focus:outline-none focus:border-danger"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-text-muted italic">Önce ürün eşleştiriniz</span>
+                              )}
                             </td>
 
                             {/* Editable Lot Number */}

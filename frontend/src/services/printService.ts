@@ -36,6 +36,10 @@ export interface PrintLabelData {
   orderNumber: string;
   isPartial?: boolean;
   isReprint?: boolean;
+  ghsPictograms?: string[];
+  signalWord?: string;
+  hazardClass?: string;
+  unNumber?: string;
 }
 
 export interface PrintOptions {
@@ -238,8 +242,26 @@ export const printLabels = async (
         </div>
 
         <div class="product-section">
-          <div class="product-name">${l.productName}</div>
-          <div class="product-sku">SKU: ${l.productSku}</div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 2mm;">
+            <div>
+              <div class="product-name">${l.productName}</div>
+              <div class="product-sku">SKU: ${l.productSku}</div>
+            </div>
+            ${(l.ghsPictograms && l.ghsPictograms.length > 0) || (l.signalWord && l.signalWord !== 'Yok') ? `
+              <div style="display: flex; align-items: center; gap: 1mm; flex-shrink: 0;">
+                ${(l.ghsPictograms || []).map(() => `
+                  <div style="width: 6.5mm; height: 6.5mm; border: 1.2px solid #DC2626; transform: rotate(45deg); display: inline-flex; align-items: center; justify-content: center; background: #fff; margin: 1mm;">
+                    <span style="transform: rotate(-45deg); font-size: 4.5pt; font-weight: 900; color: #000;">GHS</span>
+                  </div>
+                `).join('')}
+                ${l.signalWord && l.signalWord !== 'Yok' ? `
+                  <span style="font-size: 6pt; font-weight: 900; background: ${l.signalWord === 'Tehlike' ? '#DC2626' : '#D97706'}; color: #fff; padding: 0.5mm 1.5mm; border-radius: 1mm; text-transform: uppercase;">
+                    ${l.signalWord}
+                  </span>
+                ` : ''}
+              </div>
+            ` : ''}
+          </div>
         </div>
 
         <div class="grid-info">

@@ -20,8 +20,11 @@ import {
   Loader2,
   Info,
   XCircle,
-  Keyboard
+  Keyboard,
+  FileText,
+  MapPin
 } from 'lucide-react';
+import { GhsPictogramGroup } from '../components/GhsPictogram';
 
 interface ScannedResultData {
   found: boolean;
@@ -38,6 +41,16 @@ interface ScannedResultData {
   quantity: number;
   unit: string;
   warehouse: string;
+  bin_code?: string | null;
+  zone_name?: string | null;
+  hazard_class?: string | null;
+  signal_word?: string | null;
+  ghs_pictograms?: string | null;
+  storage_class?: string | null;
+  cas_number?: string | null;
+  un_number?: string | null;
+  sds_file_url?: string | null;
+  sds_revision_date?: string | null;
   status: string;
   status_label: string;
   lot_status?: string | null;
@@ -720,11 +733,84 @@ export const TerminalScanner: React.FC = () => {
                       <span className="font-bold text-text block mt-0.5">{scannedCard.customer_name}</span>
                     </div>
                     <div className="text-right">
-                      <span className="text-[11px] font-bold text-text-muted uppercase block">Konum / Depo</span>
-                      <span className="font-semibold text-text text-xs block mt-0.5">{scannedCard.warehouse}</span>
+                      <span className="text-[11px] font-bold text-text-muted uppercase block">Depo & Bölge / Raf</span>
+                      <div className="flex items-center gap-1.5 justify-end mt-0.5">
+                        <span className="font-semibold text-text text-xs">{scannedCard.warehouse}</span>
+                        {(scannedCard.bin_code || scannedCard.zone_name) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-[#F0FAEC] border border-[#C5E8BA] text-[#166534]">
+                            <MapPin className="w-3 h-3 text-[#4CAC30]" />
+                            {scannedCard.zone_name ? `${scannedCard.zone_name} / ${scannedCard.bin_code || 'Raf Yok'}` : scannedCard.bin_code}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                {/* Hazardous Material, GHS & SDS Section */}
+                {(scannedCard.ghs_pictograms || scannedCard.signal_word || scannedCard.sds_file_url || scannedCard.storage_class) && (
+                  <div className="p-3.5 bg-white rounded-xl border border-[#C5E8BA] sm:col-span-2 space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-bold text-text-muted uppercase">Tehlike & Depolama:</span>
+                        {scannedCard.storage_class && (
+                          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-primary-soft text-primary border border-primary-border">
+                            {scannedCard.storage_class}
+                          </span>
+                        )}
+                        {scannedCard.signal_word && scannedCard.signal_word !== 'Yok' && (
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              scannedCard.signal_word === 'Tehlike'
+                                ? 'bg-danger text-white'
+                                : 'bg-warning text-text'
+                            }`}
+                          >
+                            {scannedCard.signal_word}
+                          </span>
+                        )}
+                        {scannedCard.cas_number && (
+                          <span className="text-[11px] font-mono text-text-muted">
+                            CAS: <strong className="text-text">{scannedCard.cas_number}</strong>
+                          </span>
+                        )}
+                        {scannedCard.un_number && (
+                          <span className="text-[11px] font-mono text-text-muted">
+                            UN: <strong className="text-text">{scannedCard.un_number}</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      {scannedCard.sds_file_url && (
+                        <a
+                          href={scannedCard.sds_file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-border hover:bg-bg text-primary font-bold text-xs transition shadow-xs"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>GBF Aç (PDF)</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {scannedCard.ghs_pictograms && (
+                      <div className="pt-0.5">
+                        <GhsPictogramGroup
+                          pictogramKeys={(() => {
+                            try {
+                              return JSON.parse(scannedCard.ghs_pictograms);
+                            } catch {
+                              return [];
+                            }
+                          })()}
+                          size="sm"
+                          showLabels={true}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Quality & Safety Warning Callout */}

@@ -36,6 +36,10 @@ interface PackagingOrder {
   pallet_count: number;
   box_count: number;
   created_at: string;
+  hazard_class?: string;
+  signal_word?: string;
+  ghs_pictograms?: string;
+  un_number?: string;
 }
 
 interface BoxItem {
@@ -287,6 +291,15 @@ export const PackagingStation: React.FC = () => {
   const createPalletLabelData = (p: PalletItem): PrintLabelData => {
     const today = new Date().toLocaleDateString('tr-TR');
     const expiry = new Date(Date.now() + 730 * 24 * 60 * 60 * 1000).toLocaleDateString('tr-TR');
+    let pics: string[] = [];
+    if (selectedOrder?.ghs_pictograms) {
+      try {
+        pics = JSON.parse(selectedOrder.ghs_pictograms);
+      } catch {
+        pics = [];
+      }
+    }
+
     return {
       labelType: 'PALLET',
       barcodeString: p.barcode_string,
@@ -300,7 +313,11 @@ export const PackagingStation: React.FC = () => {
       customerName: selectedOrder?.customer_name || 'Genel Dağıtım',
       orderNumber: selectedOrder?.order_number || '',
       isPartial: p.is_partial,
-      isReprint: selectedOrder?.is_printed
+      isReprint: selectedOrder?.is_printed,
+      ghsPictograms: pics,
+      signalWord: selectedOrder?.signal_word,
+      hazardClass: selectedOrder?.hazard_class,
+      unNumber: selectedOrder?.un_number
     };
   };
 
@@ -308,6 +325,15 @@ export const PackagingStation: React.FC = () => {
   const createBoxLabelData = (b: BoxItem): PrintLabelData => {
     const today = new Date().toLocaleDateString('tr-TR');
     const expiry = new Date(Date.now() + 730 * 24 * 60 * 60 * 1000).toLocaleDateString('tr-TR');
+    let pics: string[] = [];
+    if (selectedOrder?.ghs_pictograms) {
+      try {
+        pics = JSON.parse(selectedOrder.ghs_pictograms);
+      } catch {
+        pics = [];
+      }
+    }
+
     return {
       labelType: 'BOX',
       barcodeString: b.barcode_string,
@@ -321,7 +347,11 @@ export const PackagingStation: React.FC = () => {
       customerName: selectedOrder?.customer_name || 'Genel Dağıtım',
       orderNumber: selectedOrder?.order_number || '',
       isPartial: b.is_partial,
-      isReprint: selectedOrder?.is_printed
+      isReprint: selectedOrder?.is_printed,
+      ghsPictograms: pics,
+      signalWord: selectedOrder?.signal_word,
+      hazardClass: selectedOrder?.hazard_class,
+      unNumber: selectedOrder?.un_number
     };
   };
 

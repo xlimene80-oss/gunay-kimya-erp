@@ -20,6 +20,18 @@ class ItemBase(BaseModel):
     is_active: bool = Field(default=True, description="Active status")
     qc_incoming_required: bool = Field(default=False, description="Giriş kontrolü gerekli")
     qc_outgoing_required: bool = Field(default=False, description="Çıkış kontrolü gerekli")
+    
+    # Hazmat & Depolama Bilgileri
+    un_number: Optional[str] = Field(default=None, max_length=20, description="UN Numarası (örn. UN 1824)")
+    signal_word: Optional[str] = Field(default="Yok", max_length=30, description="Sinyal Kelimesi: Tehlike, Dikkat, Yok")
+    ghs_pictograms: Optional[str] = Field(default="[]", description="JSON list of GHS pictogram codes")
+    storage_class: str = Field(default="Genel", max_length=50, description="Depolama Sınıfı")
+    temp_min: Optional[Decimal] = Field(default=None, description="Minimum depolama sıcaklığı (°C)")
+    temp_max: Optional[Decimal] = Field(default=None, description="Maksimum depolama sıcaklığı (°C)")
+    sds_file_url: Optional[str] = Field(default=None, max_length=255, description="GBF dosya indirme bağlantısı")
+    sds_file_name: Optional[str] = Field(default=None, max_length=255, description="GBF dosya adı")
+    sds_revision_date: Optional[datetime.date] = Field(default=None, description="GBF revizyon tarihi")
+    hazard_notes: Optional[str] = Field(default=None, description="Tehlike ve güvenlik notları")
 
 class ItemCreate(ItemBase):
     pass
@@ -37,6 +49,16 @@ class ItemUpdate(BaseModel):
     is_active: Optional[bool] = None
     qc_incoming_required: Optional[bool] = None
     qc_outgoing_required: Optional[bool] = None
+    un_number: Optional[str] = Field(default=None, max_length=20)
+    signal_word: Optional[str] = Field(default=None, max_length=30)
+    ghs_pictograms: Optional[str] = None
+    storage_class: Optional[str] = Field(default=None, max_length=50)
+    temp_min: Optional[Decimal] = None
+    temp_max: Optional[Decimal] = None
+    sds_file_url: Optional[str] = Field(default=None, max_length=255)
+    sds_file_name: Optional[str] = Field(default=None, max_length=255)
+    sds_revision_date: Optional[datetime.date] = None
+    hazard_notes: Optional[str] = None
 
 class ItemResponse(ItemBase):
     id: int
@@ -57,6 +79,8 @@ class BatchLotBase(BaseModel):
     expiration_date: Optional[datetime.date] = Field(default=None, description="Chemical shelf-life expiration date")
     status: str = Field(default="Serbest", description="Lot Durumu: Karantina, Serbest, Bloke, Reddedildi")
     qc_notes: Optional[str] = Field(default=None, description="Kalite notları")
+    bin_id: Optional[int] = Field(default=None, description="Depo Raf / Göz ID")
+    bin_code: Optional[str] = Field(default=None, description="Depo Raf Kodu (örn. A-01, B-01)")
 
 class BatchLotCreate(BatchLotBase):
     received_at: Optional[datetime.datetime] = Field(default=None, description="Inbound receipt timestamp")
@@ -67,6 +91,8 @@ class BatchLotUpdate(BaseModel):
     expiration_date: Optional[datetime.date] = None
     status: Optional[str] = None
     qc_notes: Optional[str] = None
+    bin_id: Optional[int] = None
+    bin_code: Optional[str] = None
 
 class BatchLotResponse(BatchLotBase):
     id: int
@@ -170,6 +196,9 @@ class ConfirmReceiptLine(BaseModel):
     quantity: Decimal
     expiration_date: Optional[datetime.date] = None
     unit_price: Optional[Decimal] = Decimal("0.0000")
+    bin_id: Optional[int] = None
+    bin_code: Optional[str] = None
+    override_reason: Optional[str] = None
 
 class ConfirmReceiptRequest(BaseModel):
     dispatch_number: str
@@ -206,8 +235,18 @@ class StockSummaryItem(BaseModel):
     current_quantity: Decimal
     daily_consumption: Decimal
     fefo_lot: Optional[str] = None
+    fefo_lot_id: Optional[int] = None
     fefo_lot_status: Optional[str] = None
     fefo_expiry: Optional[str] = None
+    bin_id: Optional[int] = None
+    bin_code: Optional[str] = None
+    zone_name: Optional[str] = None
+    storage_class: Optional[str] = None
+    hazard_class: Optional[str] = None
+    signal_word: Optional[str] = None
+    ghs_pictograms: Optional[str] = None
+    sds_file_url: Optional[str] = None
+    sds_revision_date: Optional[str] = None
     batches: List[BatchLotResponse] = []
 
 

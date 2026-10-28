@@ -13,7 +13,8 @@ import {
   AlertCircle,
   Check,
   ShieldAlert,
-  ChevronRight
+  ChevronRight,
+  FileWarning
 } from 'lucide-react';
 
 interface BomIngredient {
@@ -64,12 +65,19 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [pendingQcCount, setPendingQcCount] = useState<number>(0);
+  const [sdsWarningCount, setSdsWarningCount] = useState<number>(0);
 
   const fetchQualityMetrics = async () => {
     try {
-      const res = await axios.get('/api/quality/dashboard-metrics');
-      if (res.data && res.data.success && res.data.data) {
-        setPendingQcCount(res.data.data.pending_count || 0);
+      const [qRes, hazRes] = await Promise.all([
+        axios.get('/api/quality/dashboard-metrics').catch(() => null),
+        axios.get('/api/v1/hazmat/dashboard-metrics').catch(() => null)
+      ]);
+      if (qRes && qRes.data && qRes.data.success && qRes.data.data) {
+        setPendingQcCount(qRes.data.data.pending_count || 0);
+      }
+      if (hazRes && hazRes.data && typeof hazRes.data.sds_warning_count === 'number') {
+        setSdsWarningCount(hazRes.data.sds_warning_count);
       }
     } catch (e) {
       // Non-fatal if metrics call fails
@@ -224,7 +232,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
       )}
 
       {/* KPI METRIC CARDS (Rule 2: 3px top border, icon in soft box with module color, dark text) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {/* Card 1: Aktif Üretim Emirleri (mod-uretim) */}
         <div className="bg-surface border border-border border-t-[3px] border-t-mod-uretim rounded-2xl p-5 shadow-card relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -284,7 +292,34 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
           </div>
         </div>
 
-        {/* Card 4: Karbon Ayak İzi (mod-stok) */}
+        {/* Card 4: GBF Eksik / Eski (Uyarı rengi - Ürün Listesine Yönlendirme) */}
+        <div
+          onClick={() => onNavigate && onNavigate('products_sds_warning')}
+          className={`bg-surface border border-border border-t-[3px] border-t-amber-500 rounded-2xl p-5 shadow-card relative overflow-hidden transition-all ${
+            onNavigate ? 'cursor-pointer hover:shadow-md hover:border-amber-500/60 active:scale-[0.99] group' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">GBF Eksik / Eski</span>
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 border border-amber-500/20">
+              <FileWarning className="w-5 h-5 text-amber-600" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-black text-amber-600 font-mono">{sdsWarningCount}</span>
+            <span className="text-xs text-text-muted font-medium">Ürün Kartı</span>
+          </div>
+          <div className="mt-2 text-[11px] text-text-muted flex items-center justify-between">
+            <span>Güncelleme gereken formlar</span>
+            {onNavigate && (
+              <span className="text-amber-600 font-bold inline-flex items-center gap-0.5 text-[10px] group-hover:underline">
+                İncele <ChevronRight className="w-3 h-3" />
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Card 5: Karbon Ayak İzi (mod-stok) */}
         <div className="bg-surface border border-border border-t-[3px] border-t-mod-stok rounded-2xl p-5 shadow-card relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Karbon Ayak İzi</span>
@@ -301,7 +336,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
           <div className="mt-2 text-[11px] text-text-muted">Yeşil Mutabakat & ISO 14067 Uyumlu</div>
         </div>
 
-        {/* Card 5: Hazır Palet & Koli (mod-finans) */}
+        {/* Card 6: Hazır Palet & Koli (mod-finans) */}
         <div className="bg-surface border border-border border-t-[3px] border-t-mod-finans rounded-2xl p-5 shadow-card relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Hazır Palet & Koli</span>

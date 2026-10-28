@@ -1172,6 +1172,10 @@ class PackagingOrderSummary(BaseModel):
     pallet_count: int = 0
     box_count: int = 0
     created_at: datetime.datetime
+    hazard_class: Optional[str] = None
+    signal_word: Optional[str] = None
+    ghs_pictograms: Optional[str] = None
+    un_number: Optional[str] = None
 
 
 class GenerateBarcodesPayload(BaseModel):
@@ -1218,9 +1222,10 @@ async def list_packaging_orders(
 
         lot_no = o.lot_number or f"LOT-MAM-{datetime.date.today().year}-{o.id:03d}"
         cust_name = o.cari.title if o.cari else "Genel / Stok Üretimi"
-        prod_name = o.recipe.output_item.name if (o.recipe and o.recipe.output_item) else "Kimyasal Ürün"
-        prod_sku = o.recipe.output_item.sku if (o.recipe and o.recipe.output_item) else "GNY-MAM-01"
-        prod_unit = o.recipe.output_item.unit if (o.recipe and o.recipe.output_item) else "adet"
+        out_item = o.recipe.output_item if o.recipe else None
+        prod_name = out_item.name if out_item else "Kimyasal Ürün"
+        prod_sku = out_item.sku if out_item else "GNY-MAM-01"
+        prod_unit = out_item.unit if out_item else "adet"
 
         result.append(
             PackagingOrderSummary(
@@ -1241,7 +1246,11 @@ async def list_packaging_orders(
                 printed_by=getattr(o, "printed_by", None),
                 pallet_count=pallets_c,
                 box_count=boxes_c,
-                created_at=o.created_at
+                created_at=o.created_at,
+                hazard_class=out_item.hazard_class if out_item else None,
+                signal_word=out_item.signal_word if out_item else None,
+                ghs_pictograms=out_item.ghs_pictograms if out_item else None,
+                un_number=out_item.un_number if out_item else None
             )
         )
 

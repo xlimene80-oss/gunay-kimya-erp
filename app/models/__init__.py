@@ -37,6 +37,12 @@ from app.models.inventory import (
     BarcodeUnit, BarcodeType, BarcodeStatus
 )
 
+# 2.1 Hazmat, Warehouse Zones & Storage Compatibility
+from app.models.hazmat import (
+    WarehouseZone, WarehouseBin, StorageIncompatibilityRule,
+    WarehousePlacementAudit, SystemConfig
+)
+
 # 3. Manufacturing, Recipes & Greenfield Traceability Footprint
 from app.models.manufacturing import (
     Recipe, RecipeIngredient, ProductionOrder, ProductionStatus,

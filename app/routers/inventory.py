@@ -19,6 +19,7 @@ from app.models.inventory import (
 )
 from app.models.cari import CariAccount
 from app.models.manufacturing import ProductionOrder
+from app.models.hazmat import WarehouseBin, WarehouseZone, WarehousePlacementAudit
 from app.core.events import trigger_dispatch_shipped_event
 from app.schemas.inventory import (
     ItemCreate, ItemUpdate, ItemResponse, BatchLotCreate, BatchLotResponse,
@@ -565,6 +566,37 @@ async def confirm_goods_receipt(
         lot_status = "Karantina" if is_qc_req else "Serbest"
         qc_note = "Mal kabul girişi: Giriş kalite kontrol onayı bekleniyor." if is_qc_req else "Mal kabul girişi: Serbest."
 
+        # Determine shelf/bin: user selection or auto-suggest based on storage class / quarantine
+        chosen_bin_id = getattr(line, "bin_id", None)
+        chosen_bin_code = getattr(line, "bin_code", None)
+        if chosen_bin_id and not chosen_bin_code:
+            target_bin = await db.get(WarehouseBin, chosen_bin_id)
+            if target_bin:
+                chosen_bin_code = target_bin.code
+
+        if not chosen_bin_id:
+            if lot_status == "Karantina":
+                q_bin = await db.scalar(
+                    select(WarehouseBin).join(WarehouseZone).where(
+                        WarehouseZone.storage_class == "Karantina",
+                        WarehouseBin.is_active == True
+                    ).limit(1)
+                )
+                if q_bin:
+                    chosen_bin_id = q_bin.id
+                    chosen_bin_code = q_bin.code
+            else:
+                st_class = getattr(item, "storage_class", "Genel") or "Genel"
+                m_bin = await db.scalar(
+                    select(WarehouseBin).join(WarehouseZone).where(
+                        WarehouseZone.storage_class == st_class,
+                        WarehouseBin.is_active == True
+                    ).limit(1)
+                )
+                if m_bin:
+                    chosen_bin_id = m_bin.id
+                    chosen_bin_code = m_bin.code
+
         # Update or create BatchLot in warehouse
         batch_stmt = select(BatchLot).where(
             and_(
@@ -581,6 +613,10 @@ async def confirm_goods_receipt(
             if is_qc_req:
                 existing_batch.status = "Karantina"
                 existing_batch.qc_notes = qc_note
+            if chosen_bin_id:
+                existing_batch.bin_id = chosen_bin_id
+                existing_batch.bin_code = chosen_bin_code
+            lot_rec_id = existing_batch.id
         else:
             new_batch = BatchLot(
                 batch_number=batch_num,
@@ -590,9 +626,30 @@ async def confirm_goods_receipt(
                 expiration_date=line.expiration_date,
                 goods_receipt_item_id=gr_item.id,
                 status=lot_status,
-                qc_notes=qc_note
+                qc_notes=qc_note,
+                bin_id=chosen_bin_id,
+                bin_code=chosen_bin_code
             )
             db.add(new_batch)
+            await db.flush()
+            lot_rec_id = new_batch.id
+
+        # Log placement audit
+        if chosen_bin_code:
+            audit = WarehousePlacementAudit(
+                batch_lot_id=lot_rec_id,
+                lot_number=batch_num,
+                item_id=item.id,
+                item_name=item.name,
+                action_type="MAL_KABUL_PLACEMENT",
+                new_bin_id=chosen_bin_id,
+                new_bin_code=chosen_bin_code,
+                item_storage_class=getattr(item, "storage_class", "Genel"),
+                override_reason=line.override_reason or "Mal kabul ile otomatik/seçilen rafa yerleştirildi.",
+                user_name=current_user.full_name if current_user and hasattr(current_user, "full_name") else "Sistem / Mal Kabul Yetkilisi",
+                user_email=current_user.email if current_user and hasattr(current_user, "email") else "malkabul@gunaykimya.com"
+            )
+            db.add(audit)
 
     await db.commit()
 
@@ -683,6 +740,11 @@ async def get_stock_summary(
         cat_str = it.category.value if hasattr(it.category, "value") else str(it.category)
         default_wh = "Hammadde Deposu" if it.category == ItemCategory.RAW_MATERIAL else "Mamul Ürün Deposu"
 
+        bin_code_val = earliest_batch.bin_code if earliest_batch else None
+        zone_name_val = None
+        if earliest_batch and getattr(earliest_batch, "bin", None) and earliest_batch.bin.zone:
+            zone_name_val = earliest_batch.bin.zone.name
+
         result.append(
             StockSummaryItem(
                 id=it.id,
@@ -697,8 +759,18 @@ async def get_stock_summary(
                 current_quantity=total_qty,
                 daily_consumption=daily_cons,
                 fefo_lot=earliest_batch.batch_number if earliest_batch else None,
+                fefo_lot_id=earliest_batch.id if earliest_batch else None,
                 fefo_lot_status=getattr(earliest_batch, "status", "Serbest") if earliest_batch else None,
                 fefo_expiry=earliest_batch.expiration_date.strftime("%Y-%m-%d") if (earliest_batch and earliest_batch.expiration_date) else None,
+                bin_id=earliest_batch.bin_id if earliest_batch else None,
+                bin_code=bin_code_val,
+                zone_name=zone_name_val,
+                storage_class=getattr(it, "storage_class", "Genel") or "Genel",
+                hazard_class=it.hazard_class,
+                signal_word=it.signal_word,
+                ghs_pictograms=it.ghs_pictograms,
+                sds_file_url=it.sds_file_url,
+                sds_revision_date=str(it.sds_revision_date) if it.sds_revision_date else None,
                 batches=[BatchLotResponse.model_validate(b) for b in valid_batches]
             )
         )
@@ -1837,22 +1909,41 @@ async def terminal_barcode_lookup(
 
         can_dispatch_val = (status_val != "SHIPPED") and (lot_qc_status == "Serbest")
 
+        # Hazmat & Shelf info for barcode_unit
+        b_item = barcode_unit.item
+        b_bin_code = None
+        b_zone_name = None
+        if p_lot:
+            b_bin_code = getattr(p_lot, "bin_code", None)
+            if getattr(p_lot, "bin", None) and p_lot.bin.zone:
+                b_zone_name = p_lot.bin.zone.name
+
         return {
             "found": True,
             "barcode_string": barcode_unit.barcode_string,
             "barcode_type": b_type,
             "type_label": type_label,
             "item_id": barcode_unit.item_id,
-            "product_name": barcode_unit.item.name if barcode_unit.item else "Kimyasal Ürün",
-            "product_sku": barcode_unit.item.sku if barcode_unit.item else "SKU-GEN",
+            "product_name": b_item.name if b_item else "Kimyasal Ürün",
+            "product_sku": b_item.sku if b_item else "SKU-GEN",
             "lot_number": lot_no,
             "lot_status": lot_qc_status,
             "warning": lot_warning,
+            "bin_code": b_bin_code,
+            "zone_name": b_zone_name,
+            "hazard_class": getattr(b_item, "hazard_class", None),
+            "signal_word": getattr(b_item, "signal_word", "Yok"),
+            "ghs_pictograms": getattr(b_item, "ghs_pictograms", "[]"),
+            "storage_class": getattr(b_item, "storage_class", "Genel"),
+            "cas_number": getattr(b_item, "cas_number", None),
+            "un_number": getattr(b_item, "un_number", None),
+            "sds_file_url": getattr(b_item, "sds_file_url", None),
+            "sds_revision_date": str(b_item.sds_revision_date) if getattr(b_item, "sds_revision_date", None) else None,
             "production_order_number": prod_order_num,
             "customer_name": cust_name,
             "customer_id": barcode_unit.target_cari_id,
             "quantity": float(barcode_unit.quantity),
-            "unit": barcode_unit.item.unit if barcode_unit.item else "adet",
+            "unit": b_item.unit if b_item else "adet",
             "warehouse": "Mamul Ürün Deposu",
             "status": status_val,
             "status_label": status_label,
@@ -1886,6 +1977,11 @@ async def terminal_barcode_lookup(
         else:
             st_label = "✅ Serbest (Kullanılabilir)"
 
+        lot_bin_code = getattr(batch_lot, "bin_code", None)
+        lot_zone_name = None
+        if getattr(batch_lot, "bin", None) and batch_lot.bin.zone:
+            lot_zone_name = batch_lot.bin.zone.name
+
         return {
             "found": True,
             "barcode_string": batch_lot.batch_number,
@@ -1897,6 +1993,16 @@ async def terminal_barcode_lookup(
             "lot_number": batch_lot.batch_number,
             "lot_status": lot_st,
             "warning": lot_warn,
+            "bin_code": lot_bin_code,
+            "zone_name": lot_zone_name,
+            "hazard_class": getattr(item, "hazard_class", None),
+            "signal_word": getattr(item, "signal_word", "Yok"),
+            "ghs_pictograms": getattr(item, "ghs_pictograms", "[]"),
+            "storage_class": getattr(item, "storage_class", "Genel"),
+            "cas_number": getattr(item, "cas_number", None),
+            "un_number": getattr(item, "un_number", None),
+            "sds_file_url": getattr(item, "sds_file_url", None),
+            "sds_revision_date": str(item.sds_revision_date) if getattr(item, "sds_revision_date", None) else None,
             "production_order_number": "N/A",
             "customer_name": "Fabrika Dahili Stok",
             "customer_id": None,

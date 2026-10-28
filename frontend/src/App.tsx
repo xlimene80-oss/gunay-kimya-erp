@@ -19,6 +19,7 @@ import { BomManagement } from './views/BomManagement';
 import { StockManagement } from './views/StockManagement';
 import { BarcodeCenter } from './views/BarcodeCenter';
 import { ProductsManagement } from './views/ProductsManagement';
+import { WarehouseLayout } from './views/WarehouseLayout';
 import { CustomersManagement } from './views/CustomersManagement';
 import { SuppliersManagement } from './views/SuppliersManagement';
 import { GoodsReceiptManagement } from './views/GoodsReceiptManagement';
@@ -154,6 +155,8 @@ const MainShell: React.FC = () => {
             {/* 2. STOK & LOJİSTİK */}
             {currentView === 'inventory_stock' && <StockManagement />}
             {currentView === 'products_raw_materials' && <ProductsManagement />}
+            {currentView === 'products_sds_warning' && <ProductsManagement initialFilter="SDS_WARNING" />}
+            {currentView === 'warehouse_layout' && <WarehouseLayout />}
             {currentView === 'pallet_box_center' && <BarcodeCenter />}
             {currentView === 'scanner' && <TerminalScanner />}
 

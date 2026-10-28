@@ -56,6 +56,18 @@ class Item(Base, TimestampMixin):
     qc_incoming_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     qc_outgoing_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Hazmat & Storage Specifications (Bilgi Yönetimi)
+    un_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    signal_word: Mapped[Optional[str]] = mapped_column(String(30), nullable=True) # Tehlike, Dikkat, Yok
+    ghs_pictograms: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # JSON list e.g. ["FLAME", "CORROSIVE"]
+    storage_class: Mapped[str] = mapped_column(String(50), default="Genel", nullable=False) # Genel, Yanıcı, Aşındırıcı-Asit, Aşındırıcı-Baz, Yükseltgen, Soğuk (2-8 °C), Zehirli, Karantina
+    temp_min: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+    temp_max: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2), nullable=True)
+    sds_file_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sds_file_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sds_revision_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    hazard_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     batches: Mapped[List["BatchLot"]] = relationship(
         "BatchLot", 
@@ -101,9 +113,18 @@ class BatchLot(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(30), default="Serbest", index=True, nullable=False) # Karantina, Serbest, Bloke, Reddedildi
     qc_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Warehouse Shelf / Bin Location (Depo Raf / Göz Konumu)
+    bin_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("warehouse_bins.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    bin_code: Mapped[Optional[str]] = mapped_column(String(50), index=True, nullable=True) # e.g. A-01, B-01
+
     # Relationships
     item: Mapped["Item"] = relationship("Item", back_populates="batches", lazy="selectin")
     goods_receipt_item: Mapped[Optional["GoodsReceiptItem"]] = relationship("GoodsReceiptItem", foreign_keys=[goods_receipt_item_id], lazy="selectin")
+    bin: Mapped[Optional["WarehouseBin"]] = relationship("WarehouseBin", foreign_keys=[bin_id], lazy="selectin")
 
     __table_args__ = (
         Index("idx_batch_item_warehouse", "item_id", "warehouse"),
