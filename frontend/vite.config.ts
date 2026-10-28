@@ -12,12 +12,24 @@ export default defineConfig({
       manifest: {
         name: 'Günay Kimya ERP',
         short_name: 'Günay ERP',
+        id: '/',
         description: 'Günay Kimya Endüstriyel ERP & Saha El Terminali Portalı',
         theme_color: '#302480',
         background_color: '#1E1654',
         display: 'standalone',
-        orientation: 'portrait-primary',
+        orientation: 'portrait',
         start_url: '/',
+        scope: '/',
+        categories: ['business', 'productivity'],
+        shortcuts: [
+          {
+            name: 'Barkod Tara',
+            short_name: 'Barkod',
+            description: 'Barkod ve Depo Doğrulama Terminali',
+            url: '/?view=scanner',
+            icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }]
+          }
+        ],
         icons: [
           {
             src: '/icon-192.png',

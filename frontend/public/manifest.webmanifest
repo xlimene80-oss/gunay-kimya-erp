@@ -1,13 +1,15 @@
 {
   "name": "Günay Kimya ERP",
   "short_name": "Günay ERP",
+  "id": "/",
   "description": "Günay Kimya Endüstriyel ERP & Saha El Terminali Portalı",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "portrait",
   "background_color": "#1E1654",
   "theme_color": "#302480",
+  "categories": ["business", "productivity"],
   "lang": "tr",
   "dir": "ltr",
   "icons": [
@@ -32,18 +34,18 @@
   ],
   "shortcuts": [
     {
-      "name": "El Terminali",
-      "short_name": "Terminal",
+      "name": "Barkod Tara",
+      "short_name": "Barkod",
       "description": "Barkod ve Depo Doğrulama Terminali",
       "url": "/?view=scanner",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
       "name": "Paketleme İstasyonu",
       "short_name": "Paketleme",
       "description": "Hat Sonu Palet & Koli Barkodlama",
       "url": "/?view=packaging_station",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
 }

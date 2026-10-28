@@ -18,7 +18,9 @@ import {
   ArrowRight,
   Package,
   Loader2,
-  Info
+  Info,
+  XCircle,
+  Keyboard
 } from 'lucide-react';
 
 interface ScannedResultData {
@@ -54,10 +56,11 @@ export const TerminalScanner: React.FC = () => {
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const isStartingCameraRef = useRef<boolean>(false);
 
-  // Manual input state
+  // Manual & Hardware Barcode reader input state
   const [barcodeInput, setBarcodeInput] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [visualFlash, setVisualFlash] = useState<'success' | 'error' | null>(null);
 
   // Active Scanned Result
   const [scannedCard, setScannedCard] = useState<ScannedResultData | null>(null);
@@ -75,7 +78,7 @@ export const TerminalScanner: React.FC = () => {
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Sound Synthesizer via Web Audio API (Zero external audio file dependency)
+  // Sound Synthesizer via Web Audio API
   const playChime = (type: 'success' | 'error' | 'scan') => {
     if (!soundEnabled) return;
     try {
@@ -110,15 +113,15 @@ export const TerminalScanner: React.FC = () => {
         osc.stop(audioCtx.currentTime + 0.5);
       }
     } catch {
-      // AudioContext unavailable or blocked by autoplay
+      // AudioContext unavailable
     }
   };
 
-  // Vibrate on mobile device
+  // Vibrate on mobile device (200ms on success as specified)
   const triggerHaptic = (success: boolean) => {
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       if (success) {
-        navigator.vibrate(80);
+        navigator.vibrate(200);
       } else {
         navigator.vibrate([100, 50, 150]);
       }
@@ -138,24 +141,31 @@ export const TerminalScanner: React.FC = () => {
     }
   };
 
-  // Focus input automatically
+  // Always keep focus on the barcode text input (Hardware readers type like keyboards)
   const focusManualInput = () => {
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       if (inputRef.current) {
         inputRef.current.focus();
       }
-    }, 150);
+    });
   };
 
   useEffect(() => {
     focusManualInput();
     return () => {
-      // Cleanup camera on unmount
       if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
         html5QrCodeRef.current.stop().catch(() => {});
       }
     };
   }, []);
+
+  // Visual feedback flash trigger
+  const triggerVisualFeedback = (type: 'success' | 'error') => {
+    setVisualFlash(type);
+    setTimeout(() => {
+      setVisualFlash(null);
+    }, 700);
+  };
 
   // Barcode Lookup logic
   const processBarcodeLookup = async (code: string) => {
@@ -165,7 +175,9 @@ export const TerminalScanner: React.FC = () => {
     setIsProcessing(true);
     setFeedback(null);
     playChime('scan');
-    triggerHaptic(true);
+
+    // Immediately clear input and keep focused for next reader scan
+    setBarcodeInput('');
 
     try {
       const res = await axios.post('/api/v1/inventory/terminal/lookup', {
@@ -174,27 +186,49 @@ export const TerminalScanner: React.FC = () => {
 
       const data: ScannedResultData = res.data;
       setScannedCard(data);
-      setBarcodeInput('');
 
       if (data.found) {
+        triggerHaptic(true);
+        triggerVisualFeedback('success');
+        playChime('success');
         setFeedback({
           type: 'success',
-          message: `Barkod Tanındı: ${data.type_label} - ${data.product_name}`
+          message: `Barkod Doğrulandı: ${data.type_label} - ${data.product_name}`
         });
-        playChime('success');
       } else {
+        triggerHaptic(false);
+        triggerVisualFeedback('error');
+        playChime('error');
         setFeedback({
-          type: 'info',
-          message: `Sistemde henüz kayıtlı olmayan barkod (${trimmed}). Aşağıdaki aksiyonlarla işlem yapabilirsiniz.`
+          type: 'error',
+          message: `Kayıt bulunamadı: ${trimmed}`
         });
       }
     } catch (err: any) {
       console.error('Barcode lookup error:', err);
       playChime('error');
       triggerHaptic(false);
+      triggerVisualFeedback('error');
+      setScannedCard({
+        found: false,
+        barcode_string: trimmed,
+        barcode_type: 'UNKNOWN',
+        type_label: 'Bilinmeyen Barkod',
+        product_name: '',
+        product_sku: '',
+        lot_number: '',
+        customer_name: '',
+        quantity: 0,
+        unit: 'Adet',
+        warehouse: '',
+        status: 'NOT_FOUND',
+        status_label: 'Kayıt Bulunamadı',
+        can_receive: false,
+        can_dispatch: false
+      });
       setFeedback({
         type: 'error',
-        message: err.response?.data?.detail || 'Barkod sorgulanırken bir iletişim hatası oluştu.'
+        message: err.response?.data?.detail || `Barkod sorgulanamadı (${trimmed}).`
       });
     } finally {
       setIsProcessing(false);
@@ -203,6 +237,7 @@ export const TerminalScanner: React.FC = () => {
   };
 
   // Start Camera scanning using html5-qrcode
+  // Formats supported: CODE_128 (SSCC-18 and GS1-128), EAN_13, QR_CODE
   const startCamera = async () => {
     if (isStartingCameraRef.current) return;
     isStartingCameraRef.current = true;
@@ -219,9 +254,6 @@ export const TerminalScanner: React.FC = () => {
         formatsToSupport: [
           Html5QrcodeSupportedFormats.CODE_128,
           Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.UPC_A,
           Html5QrcodeSupportedFormats.QR_CODE
         ]
       };
@@ -230,13 +262,12 @@ export const TerminalScanner: React.FC = () => {
         { facingMode: 'environment' },
         config,
         (decodedText: string) => {
-          // Success Callback
           if (decodedText) {
             processBarcodeLookup(decodedText);
           }
         },
         () => {
-          // Scan frame miss (ignore)
+          // Frame miss
         }
       );
 
@@ -245,12 +276,13 @@ export const TerminalScanner: React.FC = () => {
       console.error('Camera start error:', err);
       let errorMsg = 'Kamera başlatılamadı.';
       if (err?.name === 'NotAllowedError' || err?.toString().includes('NotAllowedError')) {
-        errorMsg = 'Kamera izni reddedildi. Lütfen tarayıcı ayarlarından kameraya izin veriniz veya manuel barkod girişini kullanınız.';
+        errorMsg = 'Kamera erişim izni verilmedi. Donanım barkod okuyucu (lazer tabanca / el terminali) veya aşağıdaki giriş alanını kullanabilirsiniz.';
       } else if (err?.name === 'NotFoundError') {
         errorMsg = 'Cihazda uygun kamera bulunamadı.';
       }
       setCameraError(errorMsg);
       setIsCameraActive(false);
+      focusManualInput();
     } finally {
       isStartingCameraRef.current = false;
     }
@@ -266,9 +298,9 @@ export const TerminalScanner: React.FC = () => {
       }
     }
     setIsCameraActive(false);
+    focusManualInput();
   };
 
-  // Toggle Camera
   const toggleCamera = () => {
     if (isCameraActive) {
       stopCamera();
@@ -279,7 +311,7 @@ export const TerminalScanner: React.FC = () => {
 
   // Action: Depoya Kabul
   const handleReceiveAction = async () => {
-    if (!scannedCard) return;
+    if (!scannedCard || !scannedCard.found) return;
     setActionLoading('RECEIVE');
     setFeedback(null);
 
@@ -292,6 +324,7 @@ export const TerminalScanner: React.FC = () => {
 
       playChime('success');
       triggerHaptic(true);
+      triggerVisualFeedback('success');
       setFeedback({
         type: 'success',
         message: res.data.message || 'Depoya kabul işlemi başarıyla tamamlandı!'
@@ -307,11 +340,11 @@ export const TerminalScanner: React.FC = () => {
         ...prev.slice(0, 7)
       ]);
 
-      // Refresh card state
       setScannedCard((prev) => (prev ? { ...prev, status: 'IN_STOCK', status_label: 'Depoda (Kullanıma Hazır)' } : null));
     } catch (err: any) {
       playChime('error');
       triggerHaptic(false);
+      triggerVisualFeedback('error');
       setFeedback({
         type: 'error',
         message: err.response?.data?.detail || 'Depoya kabul işlemi başarısız oldu.'
@@ -324,7 +357,7 @@ export const TerminalScanner: React.FC = () => {
 
   // Action: Sevkiyat Doğrula
   const handleDispatchAction = async () => {
-    if (!scannedCard) return;
+    if (!scannedCard || !scannedCard.found) return;
     setActionLoading('DISPATCH');
     setFeedback(null);
 
@@ -336,6 +369,7 @@ export const TerminalScanner: React.FC = () => {
 
       playChime('success');
       triggerHaptic(true);
+      triggerVisualFeedback('success');
       setFeedback({
         type: 'success',
         message: res.data.message || 'Barkod sevkiyat için başarıyla doğrulandı!'
@@ -355,6 +389,7 @@ export const TerminalScanner: React.FC = () => {
     } catch (err: any) {
       playChime('error');
       triggerHaptic(false);
+      triggerVisualFeedback('error');
       setFeedback({
         type: 'error',
         message: err.response?.data?.detail || 'Sevkiyat doğrulaması başarısız oldu.'
@@ -366,9 +401,17 @@ export const TerminalScanner: React.FC = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-4 select-none pb-24 md:pb-6">
+    <div
+      className={`max-w-3xl mx-auto space-y-4 select-none pb-24 md:pb-6 transition-all duration-300 ${
+        visualFlash === 'success'
+          ? 'ring-4 ring-[#4CAC30]/40 rounded-3xl'
+          : visualFlash === 'error'
+          ? 'ring-4 ring-[#DC2626]/40 rounded-3xl'
+          : ''
+      }`}
+    >
       {/* Top Rugged Status Bar */}
-      <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3">
+      <div className="bg-surface border border-border rounded-2xl p-4 shadow-xs flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-mod-stok-soft text-mod-stok border border-mod-stok-soft flex items-center justify-center shrink-0">
             <ScanBarcode className="w-6 h-6" />
@@ -377,11 +420,11 @@ export const TerminalScanner: React.FC = () => {
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-black tracking-tight text-text">El Terminali</h1>
               <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-success-soft text-success border border-success-border font-mono">
-                Mobil Çevrimdışı PWA
+                PWA / Çevrimdışı
               </span>
             </div>
             <p className="text-xs text-text-muted mt-0.5">
-              Depo Mal Kabul & Sevkiyat Doğrulama • GS1 SSCC-18 & Barkod Tarayıcı
+              Depo Mal Kabul & Sevkiyat Doğrulama • GS1-128 & SSCC-18
             </p>
           </div>
         </div>
@@ -413,25 +456,26 @@ export const TerminalScanner: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Barcode Scan Trigger (Big Industrial Camera Button) */}
-      <div className="bg-surface border border-border rounded-2xl p-4 md:p-5 shadow-sm space-y-4">
+      {/* Main Barcode Actions & Trigger */}
+      <div className="bg-surface border border-border rounded-2xl p-4 md:p-5 shadow-xs space-y-4">
+        {/* Toggle Camera and Reset Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
             onClick={toggleCamera}
-            className={`min-h-[56px] py-4 px-6 rounded-2xl font-black text-base flex items-center justify-center gap-3 transition shadow-md active:scale-[0.98] ${
+            className={`min-h-[52px] py-3.5 px-6 rounded-2xl font-black text-sm sm:text-base flex items-center justify-center gap-3 transition shadow-md active:scale-[0.98] ${
               isCameraActive
                 ? 'bg-danger text-white hover:bg-danger-hover'
-                : 'bg-primary text-white hover:bg-primary-hover shadow-primary/20'
+                : 'bg-[#302480] text-white hover:bg-[#1E1654]'
             }`}
           >
             {isCameraActive ? (
               <>
-                <CameraOff className="w-6 h-6" />
+                <CameraOff className="w-5 h-5" />
                 <span>Kamerayı Kapat</span>
               </>
             ) : (
               <>
-                <Camera className="w-6 h-6" />
+                <Camera className="w-5 h-5" />
                 <span>Barkod Tara (Kamera)</span>
               </>
             )}
@@ -443,52 +487,65 @@ export const TerminalScanner: React.FC = () => {
               setFeedback(null);
               focusManualInput();
             }}
-            className="min-h-[56px] py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-2 border border-border bg-bg hover:bg-surface text-text transition"
+            className="min-h-[52px] py-3.5 px-6 rounded-2xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 border border-border bg-bg hover:bg-surface text-text transition"
           >
             <RotateCcw className="w-5 h-5 text-text-muted" />
             <span>Ekranı Temizle</span>
           </button>
         </div>
 
-        {/* Camera Viewport Container */}
-        <div className={`${isCameraActive ? 'block' : 'hidden'} transition-all`}>
-          <div className="relative rounded-2xl overflow-hidden border-2 border-primary bg-black aspect-video max-h-80 mx-auto">
-            <div id="terminal-camera-reader" className="w-full h-full" />
-            {isCameraActive && (
+        {/* Camera Viewport Container (Only shown when active) */}
+        {isCameraActive && (
+          <div className="transition-all animate-in fade-in duration-200">
+            <div className="relative rounded-2xl overflow-hidden border-2 border-[#302480] bg-black aspect-video max-h-80 mx-auto">
+              <div id="terminal-camera-reader" className="w-full h-full" />
               <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-                <div className="w-56 h-36 border-2 border-primary/80 rounded-xl relative">
-                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-danger animate-pulse shadow-sm shadow-danger" />
+                <div className="w-56 h-36 border-2 border-[#4CAC30] rounded-xl relative">
+                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#4CAC30] animate-pulse shadow-sm shadow-[#4CAC30]" />
                 </div>
-                <span className="text-[11px] font-bold text-white/90 bg-black/60 px-3 py-1 rounded-full mt-3">
-                  Barkodu kılavuz içine tutunuz
+                <span className="text-[11px] font-bold text-white/90 bg-black/70 px-3 py-1 rounded-full mt-3">
+                  CODE-128 / EAN-13 / QR barkodu kılavuza tutun
                 </span>
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Camera Permission / Error Banner */}
         {cameraError && (
-          <div className="p-4 rounded-xl bg-danger-soft border border-danger-border text-danger flex items-start gap-3 text-sm">
-            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <span className="font-bold block">Kamera Uyarısı</span>
-              <span>{cameraError}</span>
+          <div className="p-4 rounded-xl bg-danger-soft border border-danger-border text-danger flex items-start gap-3 text-sm animate-in fade-in duration-150">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-danger" />
+            <div className="flex-1 text-xs sm:text-sm">
+              <span className="font-bold block text-danger-text">Kamera Bilgilendirmesi</span>
+              <span className="text-danger-text/90 mt-0.5 block">{cameraError}</span>
             </div>
             <button
-              onClick={() => setCameraError(null)}
-              className="text-xs font-bold uppercase underline"
+              onClick={() => {
+                setCameraError(null);
+                focusManualInput();
+              }}
+              className="text-xs font-bold uppercase underline text-danger-text"
             >
               Tamam
             </button>
           </div>
         )}
 
-        {/* Manual Barcode Input Fallback (Always Ready for Laser Guns or Typing) */}
+        {/* ALWAYS-FOCUSED HARDWARE & MANUAL SCANNER INPUT */}
         <div>
-          <label className="block text-xs font-black uppercase tracking-wider text-text-muted mb-1.5">
-            Manuel Barkod veya Lazer Tabanca Girişi
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label
+              htmlFor="barcode-input-field"
+              className="block text-xs font-bold uppercase tracking-wider text-text flex items-center gap-1.5"
+            >
+              <Keyboard className="w-4 h-4 text-[#302480]" />
+              <span>Barkod Okuyucu / Manuel Giriş</span>
+            </label>
+            <span className="text-[10px] text-text-muted font-medium">
+              Lazer okuyucu ve klavye Enter otomatik sorgular
+            </span>
+          </div>
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -498,20 +555,31 @@ export const TerminalScanner: React.FC = () => {
           >
             <div className="relative flex-1">
               <input
+                id="barcode-input-field"
                 ref={inputRef}
                 type="text"
                 value={barcodeInput}
                 onChange={(e) => setBarcodeInput(e.target.value)}
-                placeholder="Örn: (00)186901230000010018 veya KOLI-5001"
-                className="w-full min-h-[50px] px-4 py-3 bg-bg border border-border rounded-xl font-mono text-base font-bold text-text focus:outline-none focus:border-primary transition"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    processBarcodeLookup(barcodeInput);
+                  }
+                }}
+                placeholder="Örn: (00)186901230000010018 veya LOT-2026-001"
+                className="w-full min-h-[50px] px-4 py-3 bg-bg border border-border rounded-xl font-mono text-base font-bold text-text focus:outline-none focus:border-[#302480] focus:ring-2 focus:ring-[#302480]/20 transition"
                 autoCapitalize="characters"
-                enterKeyHint="go"
+                autoComplete="off"
+                autoFocus
               />
               {barcodeInput && (
                 <button
                   type="button"
-                  onClick={() => setBarcodeInput('')}
-                  className="absolute right-3 top-3 text-text-muted hover:text-text font-bold text-sm px-2"
+                  onClick={() => {
+                    setBarcodeInput('');
+                    focusManualInput();
+                  }}
+                  className="absolute right-3 top-3 text-text-muted hover:text-text font-bold text-sm px-2 min-h-[28px]"
                 >
                   ✕
                 </button>
@@ -521,9 +589,13 @@ export const TerminalScanner: React.FC = () => {
             <button
               type="submit"
               disabled={!barcodeInput.trim() || isProcessing}
-              className="min-h-[50px] px-6 rounded-xl font-extrabold text-sm bg-primary hover:bg-primary-hover text-white transition flex items-center gap-2 disabled:opacity-50 shrink-0 shadow-sm"
+              className="min-h-[50px] px-6 rounded-xl font-extrabold text-sm bg-[#302480] hover:bg-[#1E1654] text-white transition flex items-center gap-2 disabled:opacity-50 shrink-0 shadow-xs"
             >
-              {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
+              {isProcessing ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <ArrowRight className="w-5 h-5" />
+              )}
               <span>Sorgula</span>
             </button>
           </form>
@@ -533,9 +605,9 @@ export const TerminalScanner: React.FC = () => {
       {/* Feedback Toast */}
       {feedback && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm font-semibold transition ${
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm font-semibold transition animate-in fade-in duration-150 ${
             feedback.type === 'success'
-              ? 'bg-success-soft border-success-border text-success'
+              ? 'bg-[#F0FAEC] border-[#C5E8BA] text-[#166534]'
               : feedback.type === 'error'
               ? 'bg-danger-soft border-danger-border text-danger'
               : 'bg-primary-soft border-primary-border text-primary'
@@ -543,9 +615,9 @@ export const TerminalScanner: React.FC = () => {
         >
           <div className="flex items-center gap-2.5">
             {feedback.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
+              <CheckCircle2 className="w-5 h-5 shrink-0 text-[#4CAC30]" />
             ) : feedback.type === 'error' ? (
-              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <AlertTriangle className="w-5 h-5 shrink-0 text-danger" />
             ) : (
               <Info className="w-5 h-5 shrink-0" />
             )}
@@ -553,128 +625,163 @@ export const TerminalScanner: React.FC = () => {
           </div>
           <button
             onClick={() => setFeedback(null)}
-            className="text-xs uppercase font-extrabold opacity-75 hover:opacity-100"
+            className="text-xs uppercase font-extrabold opacity-75 hover:opacity-100 min-h-[30px]"
           >
             Kapat
           </button>
         </div>
       )}
 
-      {/* Scanned Result Card with Industrial Action Buttons */}
+      {/* =====================================================================
+          SCANNED RESULT: BIG INDUSTRIAL CARD
+          SUCCESS: Green Theme with Full Product & Logistics Details
+          FAILURE: Red Theme "Kayıt Bulunamadı" with Guidance
+          ===================================================================== */}
       {scannedCard && (
-        <div className="bg-surface border-2 border-primary/30 rounded-2xl p-5 shadow-lg space-y-5 animate-in fade-in duration-200">
-          {/* Card Top: Type Badge & Monospace Code */}
-          <div className="flex items-start justify-between gap-2 border-b border-border pb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="px-3 py-1 rounded-lg text-xs font-extrabold uppercase bg-mod-stok-soft text-mod-stok border border-mod-stok-soft flex items-center gap-1.5">
-                  {scannedCard.barcode_type === 'PALLET' ? (
-                    <Boxes className="w-4 h-4" />
-                  ) : scannedCard.barcode_type === 'BOX' ? (
-                    <Package className="w-4 h-4" />
-                  ) : (
-                    <Tag className="w-4 h-4" />
-                  )}
-                  {scannedCard.type_label}
-                </span>
-
-                <span
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                    scannedCard.status === 'IN_STOCK'
-                      ? 'bg-success-soft text-success border-success-border'
-                      : scannedCard.status === 'RESERVED'
-                      ? 'bg-primary-soft text-primary border-primary-border'
-                      : scannedCard.status === 'SHIPPED'
-                      ? 'bg-danger-soft text-danger border-danger-border'
-                      : 'bg-warning-soft text-warning border-warning-border'
-                  }`}
-                >
-                  {scannedCard.status_label}
-                </span>
-              </div>
-
-              <div className="font-mono text-xl md:text-2xl font-black text-text tracking-wide mt-2">
-                {scannedCard.barcode_string}
-              </div>
-            </div>
-
-            <div className="text-right">
-              <span className="text-xs font-bold text-text-muted block">MİKTAR</span>
-              <span className="text-2xl font-black text-text">
-                {scannedCard.quantity}{' '}
-                <span className="text-xs font-bold text-text-muted uppercase">{scannedCard.unit}</span>
-              </span>
-            </div>
-          </div>
-
-          {/* Product & Logistics Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div className="p-3 bg-bg rounded-xl border border-border">
-              <span className="text-xs font-bold text-text-muted uppercase block">Ürün & SKU</span>
-              <span className="font-extrabold text-text text-base block mt-0.5">{scannedCard.product_name}</span>
-              <span className="text-xs font-mono text-text-muted mt-0.5 block">{scannedCard.product_sku}</span>
-            </div>
-
-            <div className="p-3 bg-bg rounded-xl border border-border">
-              <span className="text-xs font-bold text-text-muted uppercase block">Parti / Lot & Emir</span>
-              <span className="font-mono font-extrabold text-text text-base block mt-0.5">
-                {scannedCard.lot_number}
-              </span>
-              <span className="text-xs text-text-muted mt-0.5 block font-mono">
-                Emir No: {scannedCard.production_order_number || 'N/A'}
-              </span>
-            </div>
-
-            <div className="p-3 bg-bg rounded-xl border border-border sm:col-span-2">
-              <div className="flex items-center justify-between">
+        <div>
+          {scannedCard.found ? (
+            /* ================= BIG GREEN CARD (SUCCESS) ================= */
+            <div className="bg-[#F0FAEC] border-2 border-[#4CAC30] rounded-2xl p-5 shadow-md space-y-4 animate-in zoom-in-95 duration-200">
+              {/* Header: Verified Badge & Barcode String */}
+              <div className="flex items-start justify-between gap-2 border-b border-[#C5E8BA] pb-3.5">
                 <div>
-                  <span className="text-xs font-bold text-text-muted uppercase block">Müşteri / Cari Hesap</span>
-                  <span className="font-bold text-text block mt-0.5">{scannedCard.customer_name}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-3 py-1 rounded-lg text-xs font-black uppercase bg-[#4CAC30] text-white flex items-center gap-1.5 shadow-xs">
+                      {scannedCard.barcode_type === 'PALLET' ? (
+                        <Boxes className="w-4 h-4" />
+                      ) : scannedCard.barcode_type === 'BOX' ? (
+                        <Package className="w-4 h-4" />
+                      ) : (
+                        <Tag className="w-4 h-4" />
+                      )}
+                      {scannedCard.type_label}
+                    </span>
+
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white text-[#166534] border border-[#C5E8BA]">
+                      {scannedCard.status_label}
+                    </span>
+                  </div>
+
+                  <div className="font-mono text-xl sm:text-2xl font-black text-[#166534] tracking-wide mt-2">
+                    {scannedCard.barcode_string}
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs font-bold text-text-muted uppercase block">Konum / Depo</span>
-                  <span className="font-semibold text-text text-xs block mt-0.5">{scannedCard.warehouse}</span>
+
+                <div className="text-right shrink-0">
+                  <span className="text-xs font-bold text-[#166534]/70 block">MİKTAR</span>
+                  <span className="text-2xl sm:text-3xl font-black text-[#166534]">
+                    {scannedCard.quantity}{' '}
+                    <span className="text-xs font-bold uppercase">{scannedCard.unit}</span>
+                  </span>
                 </div>
               </div>
+
+              {/* Product & Logistics Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs sm:text-sm">
+                <div className="p-3 bg-white rounded-xl border border-[#C5E8BA]">
+                  <span className="text-[11px] font-bold text-text-muted uppercase block">Ürün & SKU</span>
+                  <span className="font-extrabold text-text text-sm sm:text-base block mt-0.5">
+                    {scannedCard.product_name}
+                  </span>
+                  <span className="text-xs font-mono text-text-muted mt-0.5 block">
+                    {scannedCard.product_sku}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-white rounded-xl border border-[#C5E8BA]">
+                  <span className="text-[11px] font-bold text-text-muted uppercase block">Parti / Lot & Emir</span>
+                  <span className="font-mono font-extrabold text-text text-sm sm:text-base block mt-0.5">
+                    {scannedCard.lot_number}
+                  </span>
+                  <span className="text-xs text-text-muted mt-0.5 block font-mono">
+                    Emir No: {scannedCard.production_order_number || 'N/A'}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-white rounded-xl border border-[#C5E8BA] sm:col-span-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <span className="text-[11px] font-bold text-text-muted uppercase block">Müşteri / Cari Hesap</span>
+                      <span className="font-bold text-text block mt-0.5">{scannedCard.customer_name}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[11px] font-bold text-text-muted uppercase block">Konum / Depo</span>
+                      <span className="font-semibold text-text text-xs block mt-0.5">{scannedCard.warehouse}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <button
+                  onClick={handleReceiveAction}
+                  disabled={actionLoading !== null}
+                  className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-sm sm:text-base bg-[#4CAC30] text-white hover:bg-[#439c2a] transition shadow-xs flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-50"
+                >
+                  {actionLoading === 'RECEIVE' ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Boxes className="w-5 h-5" />
+                  )}
+                  <span>Depoya Kabul Et</span>
+                </button>
+
+                <button
+                  onClick={handleDispatchAction}
+                  disabled={actionLoading !== null}
+                  className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-sm sm:text-base bg-[#302480] text-white hover:bg-[#1E1654] transition shadow-xs flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-50"
+                >
+                  {actionLoading === 'DISPATCH' ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Truck className="w-5 h-5" />
+                  )}
+                  <span>Sevkiyat Doğrula</span>
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* ================= BIG RED CARD (NOT FOUND) ================= */
+            <div className="bg-danger-soft border-2 border-danger-border rounded-2xl p-6 shadow-md text-center space-y-4 animate-in zoom-in-95 duration-200">
+              <div className="w-14 h-14 rounded-2xl bg-danger text-white flex items-center justify-center mx-auto shadow-sm">
+                <XCircle className="w-8 h-8" />
+              </div>
 
-          {/* Big Action Buttons (Min 52px Touch Target) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-            <button
-              onClick={handleReceiveAction}
-              disabled={actionLoading !== null}
-              className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-base bg-mod-stok text-white hover:bg-mod-stok/90 transition shadow-md flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-50"
-            >
-              {actionLoading === 'RECEIVE' ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Boxes className="w-5 h-5" />
-              )}
-              <span>Depoya Kabul Et</span>
-            </button>
+              <div>
+                <h3 className="text-xl font-black text-danger-text">
+                  Kayıt Bulunamadı
+                </h3>
+                <p className="text-xs sm:text-sm text-danger-text/90 mt-1 max-w-md mx-auto">
+                  Okutulan barkod veritabanında aktif bir palet, koli veya hammadde lot kaydı ile eşleşmedi.
+                </p>
+                <div className="mt-3 inline-block px-4 py-2 rounded-xl bg-white border border-danger-border font-mono text-base font-black text-danger tracking-wider">
+                  {scannedCard.barcode_string}
+                </div>
+              </div>
 
-            <button
-              onClick={handleDispatchAction}
-              disabled={actionLoading !== null}
-              className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-base bg-primary text-white hover:bg-primary-hover transition shadow-md shadow-primary/20 flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-50"
-            >
-              {actionLoading === 'DISPATCH' ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Truck className="w-5 h-5" />
-              )}
-              <span>Sevkiyat Doğrula</span>
-            </button>
-          </div>
+              <div className="pt-2">
+                <button
+                  onClick={() => {
+                    setScannedCard(null);
+                    setFeedback(null);
+                    focusManualInput();
+                  }}
+                  className="min-h-[46px] px-6 rounded-xl bg-danger text-white font-bold text-sm hover:bg-danger-hover transition active:scale-[0.98]"
+                >
+                  Yeni Barkod Oku
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Recent Activity Log for Handheld Operator */}
+      {/* Recent Activity Log */}
       {recentScans.length > 0 && (
-        <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm">
+        <div className="bg-surface border border-border rounded-2xl p-4 shadow-xs">
           <h3 className="text-xs font-extrabold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-success" />
+            <CheckCircle2 className="w-4 h-4 text-[#4CAC30]" />
             Vardiya Son İşlemleri ({recentScans.length})
           </h3>
           <div className="space-y-2">
@@ -689,7 +796,7 @@ export const TerminalScanner: React.FC = () => {
                 </div>
                 <div className="text-right">
                   <span className="font-semibold text-text-muted block text-[11px]">{item.time}</span>
-                  <span className="text-[10px] font-bold text-primary">{item.type}</span>
+                  <span className="text-[10px] font-bold text-[#302480]">{item.type}</span>
                 </div>
               </div>
             ))}

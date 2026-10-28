@@ -8,12 +8,10 @@ import {
   Eye,
   EyeOff,
   Shield,
-  ShoppingBag,
-  Package,
-  Wallet,
   Info,
   Check
 } from 'lucide-react';
+import { MobileAppInstall } from '../components/MobileAppInstall';
 
 export const Login: React.FC = () => {
   const { login } = useAuth();
@@ -25,9 +23,6 @@ export const Login: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [shake, setShake] = useState<boolean>(false);
   const [showForgotNotice, setShowForgotNotice] = useState<boolean>(false);
-
-  // Check demo mode environment variable (defaults to true if undefined)
-  const isDemoMode = import.meta.env.VITE_DEMO_MODE !== 'false';
 
   const triggerShake = () => {
     setShake(true);
@@ -67,12 +62,6 @@ export const Login: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleQuickFill = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setErrorMessage(null);
   };
 
   return (
@@ -312,7 +301,7 @@ export const Login: React.FC = () => {
               </div>
             </div>
 
-            {/* Remember Me & Forgot Password Row */}
+            {/* Remember Me & Forgot Password Row (WCAG AA High Contrast #302480) */}
             <div className="flex items-center justify-between gap-2 pt-1">
               <label className="flex items-center gap-2 cursor-pointer min-h-[44px] select-none">
                 <input
@@ -329,7 +318,7 @@ export const Login: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowForgotNotice(true)}
-                className="text-xs text-[#302480] dark:text-[#BFDBFE] hover:underline font-semibold min-h-[44px] flex items-center transition-colors whitespace-nowrap"
+                className="text-xs text-[#302480] hover:text-[#1E1654] font-bold hover:underline min-h-[44px] flex items-center transition-colors whitespace-nowrap underline-offset-2"
               >
                 Şifremi unuttum
               </button>
@@ -352,8 +341,8 @@ export const Login: React.FC = () => {
             </button>
           </form>
 
-          {/* Footer Security Note (SSL removed) */}
-          <div className="mt-5 text-center">
+          {/* Footer Security Note */}
+          <div className="mt-4 text-center">
             <p className="text-xs text-text-muted flex items-center justify-center gap-1.5 font-medium">
               <Shield className="w-3.5 h-3.5 text-[#4CAC30]" />
               <span>Güvenli oturum · Verileriniz korunur</span>
@@ -361,84 +350,9 @@ export const Login: React.FC = () => {
           </div>
 
           {/* =====================================================================
-              DEMO ACCOUNTS (Conditionally rendered when isDemoMode is true)
+              MOBILE APPLICATION INSTALLATION SECTION (PWA & BARCODE SCANNER)
               ===================================================================== */}
-          {Boolean(isDemoMode) && (
-            <div className="mt-7 pt-5 border-t border-border">
-              <span className="text-[11px] uppercase font-bold text-text-muted tracking-wider block mb-2.5 text-center">
-                Demo hesapları
-              </span>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {/* Yönetici */}
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('admin@gunaykimya.net', 'Admin123!')}
-                  className="flex items-center gap-1.5 sm:gap-2 p-2 sm:p-2.5 min-h-[44px] rounded-xl bg-bg hover:bg-surface text-text border border-border hover:border-[#302480]/40 transition-colors text-left group"
-                >
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-[#EFEFFC] text-[#302480] border border-[#D5D0F5] flex items-center justify-center shrink-0">
-                    <Shield className="w-3.5 h-3.5 text-[#302480]" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[10px] sm:text-[11px] truncate text-text group-hover:text-[#302480]">
-                      Yönetici
-                    </div>
-                    <div className="text-[9px] sm:text-[10px] text-text-muted truncate">Admin</div>
-                  </div>
-                </button>
-
-                {/* B2B Bayi */}
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('bayi@gunaykimya.net', 'Bayi123!')}
-                  className="flex items-center gap-1.5 sm:gap-2 p-2 sm:p-2.5 min-h-[44px] rounded-xl bg-bg hover:bg-surface text-text border border-border hover:border-mod-satis/40 transition-colors text-left group"
-                >
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-mod-satis-soft text-mod-satis border border-mod-satis-border flex items-center justify-center shrink-0">
-                    <ShoppingBag className="w-3.5 h-3.5 text-mod-satis" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[10px] sm:text-[11px] truncate text-text group-hover:text-mod-satis">
-                      B2B Bayi
-                    </div>
-                    <div className="text-[9px] sm:text-[10px] text-text-muted truncate">Müşteri</div>
-                  </div>
-                </button>
-
-                {/* Depo Sorumlusu */}
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('depo@gunaykimya.net', 'Depo123!')}
-                  className="flex items-center gap-1.5 sm:gap-2 p-2 sm:p-2.5 min-h-[44px] rounded-xl bg-bg hover:bg-surface text-text border border-border hover:border-mod-stok/40 transition-colors text-left group"
-                >
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-mod-stok-soft text-mod-stok border border-mod-stok-border flex items-center justify-center shrink-0">
-                    <Package className="w-3.5 h-3.5 text-mod-stok" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[10px] sm:text-[11px] truncate text-text group-hover:text-mod-stok">
-                      Depo Sorumlusu
-                    </div>
-                    <div className="text-[9px] sm:text-[10px] text-text-muted truncate">Lojistik</div>
-                  </div>
-                </button>
-
-                {/* Muhasebe */}
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('muhasebe@gunaykimya.net', 'Muhasebe123!')}
-                  className="flex items-center gap-1.5 sm:gap-2 p-2 sm:p-2.5 min-h-[44px] rounded-xl bg-bg hover:bg-surface text-text border border-border hover:border-mod-finans/40 transition-colors text-left group"
-                >
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-mod-finans-soft text-mod-finans border border-mod-finans-border flex items-center justify-center shrink-0">
-                    <Wallet className="w-3.5 h-3.5 text-mod-finans" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[10px] sm:text-[11px] truncate text-text group-hover:text-mod-finans">
-                      Muhasebe
-                    </div>
-                    <div className="text-[9px] sm:text-[10px] text-text-muted truncate">Finans</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-          )}
+          <MobileAppInstall />
         </div>
       </main>
     </div>
