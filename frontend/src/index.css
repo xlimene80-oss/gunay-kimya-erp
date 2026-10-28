@@ -75,6 +75,54 @@
   --danger-text: #991B1B;
   --danger-border: #FECACA;
   --danger-hover: #B91C1C;
+
+  /* Brand Identity Colors */
+  --brand-navy: #302480;
+  --brand-navy-rgb: 48, 36, 128;
+  --brand-navy-dark: #1E1654;
+  --brand-navy-dark-rgb: 30, 22, 84;
+  --brand-green: #4CAC30;
+  --brand-green-rgb: 76, 172, 48;
+  --brand-green-soft: #F0FAEC;
+  --brand-green-soft-rgb: 240, 250, 236;
+}
+
+/* Explicit Brand Utilities for Login & Navigation */
+.login-brand-panel {
+  background: #302480;
+  background: linear-gradient(135deg, #1E1654 0%, #302480 100%);
+  min-height: 100vh;
+}
+
+.btn-brand-primary {
+  background-color: #302480 !important;
+  color: #FFFFFF !important;
+  border: 1px solid #302480 !important;
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+.btn-brand-primary:hover:not(:disabled) {
+  background-color: #1E1654 !important;
+  border-color: #1E1654 !important;
+}
+.btn-brand-primary:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+}
+
+.input-brand-focus:focus {
+  border-color: #302480 !important;
+  box-shadow: 0 0 0 2px rgba(48, 36, 128, 0.2) !important;
+  outline: none !important;
+}
+
+/* Browser Autofill styling override */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: #0F172A !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 body {
@@ -83,6 +131,42 @@ body {
   background-color: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.35s ease-in-out;
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-shake {
+    animation: none !important;
+  }
+  .animate-fade-up {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 
 @media print {

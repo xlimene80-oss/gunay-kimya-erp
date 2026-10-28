@@ -8,29 +8,29 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+      includeAssets: ['favicon.png', 'favicon.svg', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'Günay Kimya ERP',
         short_name: 'Günay ERP',
         description: 'Günay Kimya Endüstriyel ERP & Saha El Terminali Portalı',
-        theme_color: '#2563EB',
-        background_color: '#0F172A',
+        theme_color: '#302480',
+        background_color: '#1E1654',
         display: 'standalone',
         orientation: 'portrait-primary',
         start_url: '/',
         icons: [
           {
-            src: '/pwa-192x192.png',
+            src: '/icon-192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: '/pwa-512x512.png',
+            src: '/icon-512.png',
             sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: '/pwa-512x512.png',
+            src: '/icon-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'

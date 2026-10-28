@@ -54,6 +54,11 @@ export default {
         'danger-text': 'var(--danger-text)',
         'danger-border': 'var(--danger-border)',
         'danger-hover': 'var(--danger-hover)',
+
+        'brand-navy': 'var(--brand-navy)',
+        'brand-navy-dark': 'var(--brand-navy-dark)',
+        'brand-green': 'var(--brand-green)',
+        'brand-green-soft': 'var(--brand-green-soft)',
       },
       boxShadow: {
         card: '0 1px 2px rgba(15, 23, 42, 0.06)',
