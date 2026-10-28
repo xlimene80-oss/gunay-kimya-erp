@@ -54,8 +54,11 @@ export const PWAUpdatePrompt: React.FC = () => {
     });
 
     // Listen for direct service worker controllerchange event
+    let refreshing = false;
     const handleControllerChange = () => {
-      setNeedRefresh(true);
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
     };
 
     if ('serviceWorker' in navigator) {

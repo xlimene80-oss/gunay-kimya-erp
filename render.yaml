@@ -35,8 +35,5 @@ services:
         value: https://gunay-kimya-api.onrender.com
     routes:
       - type: rewrite
-        source: /api/*
-        destination: https://gunay-kimya-api.onrender.com/api/*
-      - type: rewrite
         source: /*
         destination: /index.html

@@ -44,9 +44,16 @@ if raw_db_url.startswith("postgres://"):
 elif raw_db_url.startswith("postgresql://") and not raw_db_url.startswith("postgresql+asyncpg://"):
     raw_db_url = raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+# Strip channel_binding if present (Neon default param not supported by asyncpg)
+if "channel_binding=" in raw_db_url:
+    import re
+    raw_db_url = re.sub(r"[?&]channel_binding=[^&]+", "", raw_db_url)
+    if "?" not in raw_db_url and "&" in raw_db_url:
+        raw_db_url = raw_db_url.replace("&", "?", 1)
+
 # Handle sslmode query parameter if present for asyncpg compatibility
 if "sslmode=" in raw_db_url:
-    raw_db_url = raw_db_url.replace("sslmode=require", "ssl=require").replace("sslmode=prefer", "ssl=prefer")
+    raw_db_url = raw_db_url.replace("sslmode=require", "ssl=require").replace("sslmode=prefer", "ssl=prefer").replace("sslmode=disable", "ssl=disable")
 
 db_url = raw_db_url
 is_sqlite = db_url.startswith("sqlite")

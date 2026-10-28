@@ -5,8 +5,11 @@ import App from './App';
 import './index.css';
 
 // Configure Axios baseURL from VITE_API_URL (used on production Render deployment)
-// If VITE_API_URL is undefined or empty, Axios uses relative paths hitting Vite dev proxy
-const apiBase = import.meta.env.VITE_API_URL;
+// If VITE_API_URL is undefined or empty, automatically detect if running on Render domain
+const envApiUrl = import.meta.env.VITE_API_URL;
+const isRenderDomain = typeof window !== 'undefined' && window.location.hostname.includes('onrender.com');
+
+const apiBase = envApiUrl || (isRenderDomain ? 'https://gunay-kimya-api.onrender.com' : undefined);
 if (apiBase && typeof apiBase === 'string') {
   axios.defaults.baseURL = apiBase.replace(/\/$/, '');
 }
