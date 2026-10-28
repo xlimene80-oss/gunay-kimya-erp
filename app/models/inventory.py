@@ -53,6 +53,8 @@ class Item(Base, TimestampMixin):
     shelf_life_days: Mapped[Optional[int]] = mapped_column(Integer, default=365, nullable=True)
     hazard_class: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    qc_incoming_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    qc_outgoing_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     batches: Mapped[List["BatchLot"]] = relationship(
@@ -96,6 +98,8 @@ class BatchLot(Base, TimestampMixin):
         nullable=True, 
         index=True
     )
+    status: Mapped[str] = mapped_column(String(30), default="Serbest", index=True, nullable=False) # Karantina, Serbest, Bloke, Reddedildi
+    qc_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     item: Mapped["Item"] = relationship("Item", back_populates="batches", lazy="selectin")

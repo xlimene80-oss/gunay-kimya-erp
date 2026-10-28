@@ -5,6 +5,7 @@ from app.routers.manufacturing import router as manufacturing_router
 from app.routers.cari import router as cari_router
 from app.routers.accounting import router as accounting_router
 from app.routers.notifications import router as notifications_router
+from app.routers.quality import router as quality_router
 
 api_router = APIRouter()
 
@@ -15,3 +16,4 @@ api_router.include_router(manufacturing_router)
 api_router.include_router(cari_router)
 api_router.include_router(accounting_router)
 api_router.include_router(notifications_router)
+api_router.include_router(quality_router)

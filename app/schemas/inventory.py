@@ -18,6 +18,8 @@ class ItemBase(BaseModel):
     shelf_life_days: Optional[int] = Field(default=365, ge=0, description="Shelf life in days")
     hazard_class: Optional[str] = Field(default=None, max_length=50, description="Hazard / ADR class (optional)")
     is_active: bool = Field(default=True, description="Active status")
+    qc_incoming_required: bool = Field(default=False, description="Giriş kontrolü gerekli")
+    qc_outgoing_required: bool = Field(default=False, description="Çıkış kontrolü gerekli")
 
 class ItemCreate(ItemBase):
     pass
@@ -33,6 +35,8 @@ class ItemUpdate(BaseModel):
     shelf_life_days: Optional[int] = Field(default=None, ge=0)
     hazard_class: Optional[str] = Field(default=None, max_length=50)
     is_active: Optional[bool] = None
+    qc_incoming_required: Optional[bool] = None
+    qc_outgoing_required: Optional[bool] = None
 
 class ItemResponse(ItemBase):
     id: int
@@ -51,6 +55,8 @@ class BatchLotBase(BaseModel):
     warehouse: str = Field(default="Hammadde Deposu", max_length=100, description="Warehouse name/location")
     quantity: Decimal = Field(..., ge=Decimal("0.000"), description="Quantity in stock for this batch")
     expiration_date: Optional[datetime.date] = Field(default=None, description="Chemical shelf-life expiration date")
+    status: str = Field(default="Serbest", description="Lot Durumu: Karantina, Serbest, Bloke, Reddedildi")
+    qc_notes: Optional[str] = Field(default=None, description="Kalite notları")
 
 class BatchLotCreate(BatchLotBase):
     received_at: Optional[datetime.datetime] = Field(default=None, description="Inbound receipt timestamp")
@@ -59,6 +65,8 @@ class BatchLotUpdate(BaseModel):
     quantity: Optional[Decimal] = Field(default=None, ge=Decimal("0.000"))
     warehouse: Optional[str] = Field(default=None, max_length=100)
     expiration_date: Optional[datetime.date] = None
+    status: Optional[str] = None
+    qc_notes: Optional[str] = None
 
 class BatchLotResponse(BatchLotBase):
     id: int
@@ -198,6 +206,7 @@ class StockSummaryItem(BaseModel):
     current_quantity: Decimal
     daily_consumption: Decimal
     fefo_lot: Optional[str] = None
+    fefo_lot_status: Optional[str] = None
     fefo_expiry: Optional[str] = None
     batches: List[BatchLotResponse] = []
 

@@ -27,6 +27,8 @@ interface ProductItem {
   shelf_life_days?: number;
   hazard_class?: string;
   is_active: boolean;
+  qc_incoming_required?: boolean;
+  qc_outgoing_required?: boolean;
 }
 
 export const ProductsManagement: React.FC = () => {
@@ -51,7 +53,9 @@ export const ProductsManagement: React.FC = () => {
     min_stock: '1000',
     shelf_life_days: '365',
     hazard_class: '',
-    is_active: true
+    is_active: true,
+    qc_incoming_required: false,
+    qc_outgoing_required: false
   });
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -98,7 +102,9 @@ export const ProductsManagement: React.FC = () => {
       min_stock: '1000',
       shelf_life_days: '365',
       hazard_class: '',
-      is_active: true
+      is_active: true,
+      qc_incoming_required: false,
+      qc_outgoing_required: false
     });
     setFormErrors({});
     setErrorMessage(null);
@@ -127,7 +133,9 @@ export const ProductsManagement: React.FC = () => {
       min_stock: item.min_stock !== undefined ? String(item.min_stock) : '0',
       shelf_life_days: item.shelf_life_days !== undefined ? String(item.shelf_life_days) : '365',
       hazard_class: item.hazard_class || '',
-      is_active: item.is_active
+      is_active: item.is_active,
+      qc_incoming_required: item.qc_incoming_required || false,
+      qc_outgoing_required: item.qc_outgoing_required || false
     });
     setFormErrors({});
     setErrorMessage(null);
@@ -164,7 +172,9 @@ export const ProductsManagement: React.FC = () => {
       min_stock: Number(formData.min_stock),
       shelf_life_days: Number(formData.shelf_life_days),
       hazard_class: formData.hazard_class.trim() || null,
-      is_active: formData.is_active
+      is_active: formData.is_active,
+      qc_incoming_required: formData.qc_incoming_required,
+      qc_outgoing_required: formData.qc_outgoing_required
     };
 
     try {
@@ -602,6 +612,43 @@ export const ProductsManagement: React.FC = () => {
                   className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-sm text-text focus:outline-none focus:border-primary"
                 />
                 <p className="text-[11px] text-text-muted mt-1">ADR / Güvenlik bilgi formu tehlike kodu.</p>
+              </div>
+
+              {/* Kalite Kontrol Gereksinimleri */}
+              <div className="pt-2 border-t border-border space-y-3">
+                <span className="text-xs font-bold uppercase text-text-muted tracking-wider block">
+                  Kalite Kontrol Zorunluluğu
+                </span>
+
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.qc_incoming_required}
+                    onChange={(e) => setFormData({ ...formData, qc_incoming_required: e.target.checked })}
+                    className="w-4 h-4 mt-0.5 rounded border-border text-[#302480] focus:ring-[#302480]"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-text">Giriş kontrolü gerekli</span>
+                    <p className="text-[11px] text-text-muted">
+                      Mal kabulde bu ürünün partileri otomatik olarak <strong>KARANTİNA</strong> durumuna alınır.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.qc_outgoing_required}
+                    onChange={(e) => setFormData({ ...formData, qc_outgoing_required: e.target.checked })}
+                    className="w-4 h-4 mt-0.5 rounded border-border text-[#302480] focus:ring-[#302480]"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-text">Çıkış kontrolü gerekli</span>
+                    <p className="text-[11px] text-text-muted">
+                      Üretim/dolum tamamlandığında mamul lotu otomatik olarak <strong>KARANTİNA</strong> durumuna alınır.
+                    </p>
+                  </div>
+                </label>
               </div>
 
               {/* Durum (Aktif / Pasif) */}

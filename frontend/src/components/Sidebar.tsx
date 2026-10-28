@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import {
   Factory,
   Boxes,
@@ -21,6 +22,9 @@ import {
   Briefcase,
   FileCheck2,
   PackageCheck,
+  ClipboardCheck,
+  FileSpreadsheet,
+  Award,
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -173,6 +177,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     },
     {
+      id: 'quality',
+      title: 'KALİTE YÖNETİMİ',
+      icon: ShieldCheck,
+      roles: ['admin', 'kalite', 'uretim', 'depo', 'fabrika_muduru'],
+      items: [
+        {
+          id: 'quality_pending',
+          label: 'Kalite Kontrol Bekleyenler',
+          icon: ClipboardCheck,
+          roles: ['admin', 'kalite', 'uretim', 'depo']
+        },
+        {
+          id: 'quality_templates',
+          label: 'Test Şablonları',
+          icon: FileSpreadsheet,
+          roles: ['admin', 'kalite']
+        },
+        {
+          id: 'quality_coas',
+          label: 'Analiz Sertifikaları',
+          icon: Award,
+          roles: ['admin', 'kalite', 'bayi', 'depo', 'uretim', 'muhasebe']
+        }
+      ]
+    },
+    {
       id: 'finance',
       title: 'FİNANSAL YÖNETİM',
       icon: Wallet,
@@ -195,6 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       inventory_logistics: false,
       procurement: false,
       sales_dispatch: false,
+      quality: false,
       finance: false
     };
     for (const group of menuGroups) {
@@ -207,6 +238,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => getInitialOpenGroups(currentView));
+  const [pendingQcCount, setPendingQcCount] = useState<number>(0);
+
+  useEffect(() => {
+    axios
+      .get('/api/v1/quality/dashboard-metrics')
+      .then((res) => setPendingQcCount(res.data?.pending_count || 0))
+      .catch(() => {});
+  }, [currentView]);
 
   useEffect(() => {
     for (const group of menuGroups) {
@@ -327,6 +366,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 textColor: 'text-mod-satis',
                 border: 'border-mod-satis-border',
               },
+              quality: {
+                softBg: 'bg-amber-500/10',
+                textColor: 'text-amber-600',
+                border: 'border-amber-500/30',
+              },
               finance: {
                 softBg: 'bg-mod-finans-soft',
                 textColor: 'text-mod-finans',
@@ -385,10 +429,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               : 'text-text hover:bg-bg hover:text-text border-l-[3px] border-l-transparent rounded-r-lg'
                           }`}
                         >
-                          <div className="flex items-center gap-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
                             <SubIcon className={`w-4 h-4 shrink-0 ${isActive ? 'text-primary' : 'text-text-muted'}`} />
                             <span className="truncate">{subItem.label}</span>
                           </div>
+                          {subItem.id === 'quality_pending' && pendingQcCount > 0 && (
+                            <span className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white shrink-0">
+                              {pendingQcCount}
+                            </span>
+                          )}
                         </button>
                       );
                     })}

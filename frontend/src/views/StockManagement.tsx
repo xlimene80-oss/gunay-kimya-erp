@@ -23,6 +23,7 @@ interface StockItem {
   min_safety_stock?: number;
   warehouse?: string;
   fefo_lot?: string;
+  fefo_lot_status?: string;
   fefo_expiry?: string;
   daily_consumption?: number; // erime hızı
 }
@@ -50,6 +51,7 @@ export const StockManagement: React.FC = () => {
           min_safety_stock: Number(item.min_safety_stock) || 0,
           warehouse: item.warehouse || 'Hammadde Deposu',
           fefo_lot: item.fefo_lot || 'Parti Yok',
+          fefo_lot_status: item.fefo_lot_status || 'Serbest',
           fefo_expiry: item.fefo_expiry || '-',
           daily_consumption: Number(item.daily_consumption) || 100
         })));
@@ -287,8 +289,35 @@ export const StockManagement: React.FC = () => {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="font-mono text-text text-xs font-semibold">{item.fefo_lot}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-text text-xs font-semibold">{item.fefo_lot}</span>
+                        {item.fefo_lot_status && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              item.fefo_lot_status === 'Serbest'
+                                ? 'bg-success-soft text-success-text border border-success-border'
+                                : item.fefo_lot_status === 'Karantina'
+                                ? 'bg-warning-soft text-warning-text border border-warning-border'
+                                : 'bg-danger-soft text-danger-text border border-danger-border'
+                            }`}
+                          >
+                            {item.fefo_lot_status}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-text-muted">SKT: {item.fefo_expiry}</div>
+                      {item.fefo_lot_status === 'Karantina' && (
+                        <div className="text-[10px] text-warning-text font-bold mt-0.5 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-warning" />
+                          <span>Bu lot karantinada, kullanılamaz</span>
+                        </div>
+                      )}
+                      {(item.fefo_lot_status === 'Bloke' || item.fefo_lot_status === 'Reddedildi') && (
+                        <div className="text-[10px] text-danger-text font-bold mt-0.5 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-danger" />
+                          <span>Bu lot {item.fefo_lot_status.toLowerCase()}, kullanılamaz</span>
+                        </div>
+                      )}
                     </td>
                     <td className="p-4 text-center">
                       {isCritical ? (

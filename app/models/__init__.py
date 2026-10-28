@@ -55,3 +55,11 @@ from app.models.cari import (
     CariGroup, CariAccount, CheckBond, GroupDiscountRule,
     CariType, RiskStatus, CheckBondType, CheckBondStatus
 )
+
+# 6. Quality Management & Laboratory CoA
+from app.models.quality import (
+    LotStatus, InspectionDecision,
+    QualityTestTemplate, QualityTestItem,
+    QualityInspection, QualityInspectionResult,
+    QualityCertificateOfAnalysis
+)

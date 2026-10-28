@@ -275,13 +275,14 @@ async def update_production_order_status(
         for ingredient in recipe.ingredients:
             required_qty = ingredient.required_quantity * scale_factor
             
-            # Fetch available batch lots for this raw material (FEFO: earliest expiration first)
+            # Fetch available batch lots for this raw material (FEFO: earliest expiration first, ONLY Serbest lots)
             batches_query = (
                 select(BatchLot)
                 .where(
                     and_(
                         BatchLot.item_id == ingredient.raw_material_item_id,
-                        BatchLot.quantity > Decimal("0.000")
+                        BatchLot.quantity > Decimal("0.000"),
+                        or_(BatchLot.status == "Serbest", BatchLot.status == None)
                     )
                 )
                 .order_by(BatchLot.expiration_date.asc().nulls_last(), BatchLot.received_at.asc())
@@ -295,8 +296,8 @@ async def update_production_order_status(
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(
-                        f"Insufficient stock for raw material '{raw_mat_name}' (SKU: {raw_mat_sku}). "
-                        f"Required: {required_qty:.3f}, Available: {total_available:.3f}."
+                        f"Reçete stok ayrımı başarısız: '{raw_mat_name}' (SKU: {raw_mat_sku}) için serbest kullanılabilir stok yetersiz. "
+                        f"Gereken: {required_qty:.3f}, Serbest Stok: {total_available:.3f}. (Karantinadaki veya blokeli lotlar üretime verilemez)."
                     )
                 )
             
@@ -324,6 +325,11 @@ async def update_production_order_status(
         today = datetime.date.today()
         expiration_date = today + datetime.timedelta(days=730)  # Standard 2-year shelf life for chemicals
 
+        # Check if output product requires outgoing QC inspection
+        is_outgoing_qc = getattr(recipe.output_item, "qc_outgoing_required", False) if recipe.output_item else False
+        out_status = "Karantina" if is_outgoing_qc else "Serbest"
+        out_qc_notes = "Dolum tamamlandı: Çıkış kalite kontrol onayı bekleniyor." if is_outgoing_qc else "Üretim tamamlandı: Serbest."
+
         # Check if batch lot already exists for this order
         output_batch_query = (
             select(BatchLot)
@@ -338,12 +344,18 @@ async def update_production_order_status(
 
         if output_batch:
             output_batch.quantity += order.target_quantity
+            if is_outgoing_qc:
+                output_batch.status = "Karantina"
+                output_batch.qc_notes = out_qc_notes
         else:
             output_batch = BatchLot(
                 batch_number=finished_batch_number,
                 item_id=recipe.output_item_id,
+                warehouse="Mamul Ürün Deposu",
                 quantity=order.target_quantity,
-                expiration_date=expiration_date
+                expiration_date=expiration_date,
+                status=out_status,
+                qc_notes=out_qc_notes
             )
             db.add(output_batch)
 
@@ -1329,6 +1341,15 @@ async def generate_packaging_barcodes(
             detail=f"Production order with ID {payload.order_id} not found."
         )
 
+    # Guardrail: Check quality lot status (Quarantine/Blocked/Rejected lots cannot be packaged or labeled)
+    lot_num = order.lot_number or f"LOT-{order.order_number}"
+    lot_obj = await db.scalar(select(BatchLot).where(BatchLot.batch_number == lot_num))
+    if lot_obj and lot_obj.status in ["Karantina", "Bloke", "Reddedildi"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Bu üretim emrinin mamul lotu ({lot_num}) '{lot_obj.status}' durumundadır. Kalite kontrol onayı alınmadan paketleme etiketi basılamaz."
+        )
+
     units_per_box = max(1, payload.units_per_box)
     boxes_per_pallet = max(1, payload.boxes_per_pallet)
 
@@ -1456,6 +1477,15 @@ async def log_label_print(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Production order with ID {payload.order_id} not found."
+        )
+
+    # Guardrail: Check quality lot status (Quarantine/Blocked/Rejected lots cannot be packaged or labeled)
+    lot_num = order.lot_number or f"LOT-{order.order_number}"
+    lot_obj = await db.scalar(select(BatchLot).where(BatchLot.batch_number == lot_num))
+    if lot_obj and lot_obj.status in ["Karantina", "Bloke", "Reddedildi"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Bu üretim emrinin mamul lotu ({lot_num}) '{lot_obj.status}' durumundadır. Kalite kontrol onayı alınmadan paketleme etiketi basılamaz."
         )
 
     print_log = LabelPrintLog(

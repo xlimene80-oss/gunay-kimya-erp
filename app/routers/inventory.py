@@ -560,6 +560,11 @@ async def confirm_goods_receipt(
         db.add(gr_item)
         await db.flush()
 
+        # Determine lot status based on incoming QC requirement
+        is_qc_req = getattr(item, "qc_incoming_required", False)
+        lot_status = "Karantina" if is_qc_req else "Serbest"
+        qc_note = "Mal kabul girişi: Giriş kalite kontrol onayı bekleniyor." if is_qc_req else "Mal kabul girişi: Serbest."
+
         # Update or create BatchLot in warehouse
         batch_stmt = select(BatchLot).where(
             and_(
@@ -573,6 +578,9 @@ async def confirm_goods_receipt(
             existing_batch.quantity += line.quantity
             if line.expiration_date:
                 existing_batch.expiration_date = line.expiration_date
+            if is_qc_req:
+                existing_batch.status = "Karantina"
+                existing_batch.qc_notes = qc_note
         else:
             new_batch = BatchLot(
                 batch_number=batch_num,
@@ -580,7 +588,9 @@ async def confirm_goods_receipt(
                 warehouse=payload.target_warehouse,
                 quantity=line.quantity,
                 expiration_date=line.expiration_date,
-                goods_receipt_item_id=gr_item.id
+                goods_receipt_item_id=gr_item.id,
+                status=lot_status,
+                qc_notes=qc_note
             )
             db.add(new_batch)
 
@@ -687,6 +697,7 @@ async def get_stock_summary(
                 current_quantity=total_qty,
                 daily_consumption=daily_cons,
                 fefo_lot=earliest_batch.batch_number if earliest_batch else None,
+                fefo_lot_status=getattr(earliest_batch, "status", "Serbest") if earliest_batch else None,
                 fefo_expiry=earliest_batch.expiration_date.strftime("%Y-%m-%d") if (earliest_batch and earliest_batch.expiration_date) else None,
                 batches=[BatchLotResponse.model_validate(b) for b in valid_batches]
             )
@@ -762,10 +773,17 @@ async def process_goods_receipt(
             )
         )
         existing_batch = await db.scalar(batch_lot_stmt)
+        is_qc_req = getattr(item, "qc_incoming_required", False)
+        lot_status = "Karantina" if is_qc_req else "Serbest"
+        qc_note = "Mal kabul girişi: Giriş kalite kontrol onayı bekleniyor." if is_qc_req else "Mal kabul girişi: Serbest."
+
         if existing_batch:
             existing_batch.quantity += item_in.quantity
             if not existing_batch.goods_receipt_item_id:
                 existing_batch.goods_receipt_item_id = receipt_item.id
+            if is_qc_req:
+                existing_batch.status = "Karantina"
+                existing_batch.qc_notes = qc_note
         else:
             new_batch = BatchLot(
                 batch_number=batch_num,
@@ -773,7 +791,9 @@ async def process_goods_receipt(
                 warehouse=payload.target_warehouse,
                 quantity=item_in.quantity,
                 expiration_date=item_in.expiration_date,
-                goods_receipt_item_id=receipt_item.id
+                goods_receipt_item_id=receipt_item.id,
+                status=lot_status,
+                qc_notes=qc_note
             )
             db.add(new_batch)
 
@@ -1785,11 +1805,22 @@ async def terminal_barcode_lookup(
         # Link production order lot
         lot_no = "N/A"
         prod_order_num = "N/A"
+        lot_warning = None
+        lot_qc_status = "Serbest"
         if barcode_unit.production_order_id:
             p_order = await db.get(ProductionOrder, barcode_unit.production_order_id)
             if p_order:
                 lot_no = p_order.lot_number or f"LOT-{p_order.order_number}"
                 prod_order_num = p_order.order_number
+                # Check lot status in BatchLot
+                p_lot_stmt = select(BatchLot).where(BatchLot.batch_number == lot_no)
+                p_lot = await db.scalar(p_lot_stmt)
+                if p_lot:
+                    lot_qc_status = getattr(p_lot, "status", "Serbest") or "Serbest"
+                    if lot_qc_status == "Karantina":
+                        lot_warning = "Bu lot karantinada, kullanılamaz"
+                    elif lot_qc_status in ["Bloke", "Reddedildi"]:
+                        lot_warning = f"Bu lot {lot_qc_status.lower()} durumundadır, kullanılamaz"
 
         cust_name = barcode_unit.target_cari.title if barcode_unit.target_cari else "Genel Müşteri / Stok"
         status_val = barcode_unit.status.value if hasattr(barcode_unit.status, "value") else str(barcode_unit.status)
@@ -1801,6 +1832,10 @@ async def terminal_barcode_lookup(
             "PRODUCED": "Üretimden Yeni Çıktı"
         }
         status_label = status_label_map.get(status_val, status_val)
+        if lot_warning:
+            status_label = f"⚠️ {lot_qc_status.upper()} - {status_label}"
+
+        can_dispatch_val = (status_val != "SHIPPED") and (lot_qc_status == "Serbest")
 
         return {
             "found": True,
@@ -1811,6 +1846,8 @@ async def terminal_barcode_lookup(
             "product_name": barcode_unit.item.name if barcode_unit.item else "Kimyasal Ürün",
             "product_sku": barcode_unit.item.sku if barcode_unit.item else "SKU-GEN",
             "lot_number": lot_no,
+            "lot_status": lot_qc_status,
+            "warning": lot_warning,
             "production_order_number": prod_order_num,
             "customer_name": cust_name,
             "customer_id": barcode_unit.target_cari_id,
@@ -1820,7 +1857,7 @@ async def terminal_barcode_lookup(
             "status": status_val,
             "status_label": status_label,
             "can_receive": status_val != "SHIPPED",
-            "can_dispatch": status_val != "SHIPPED",
+            "can_dispatch": can_dispatch_val,
             "child_box_count": len(barcode_unit.children_boxes) if b_type == "PALLET" else 0
         }
 
@@ -1838,6 +1875,17 @@ async def terminal_barcode_lookup(
     batch_lot = await db.scalar(lot_stmt)
     if batch_lot:
         item = batch_lot.item
+        lot_st = getattr(batch_lot, "status", "Serbest") or "Serbest"
+        lot_warn = None
+        if lot_st == "Karantina":
+            lot_warn = "Bu lot karantinada, kullanılamaz"
+            st_label = "⚠️ KARANTİNA (Kullanılamaz)"
+        elif lot_st in ["Bloke", "Reddedildi"]:
+            lot_warn = f"Bu lot {lot_st.lower()} durumundadır, kullanılamaz"
+            st_label = f"⛔ {lot_st.upper()} (Kullanılamaz)"
+        else:
+            st_label = "✅ Serbest (Kullanılabilir)"
+
         return {
             "found": True,
             "barcode_string": batch_lot.batch_number,
@@ -1847,15 +1895,17 @@ async def terminal_barcode_lookup(
             "product_name": item.name if item else "Kimyasal Hammadde",
             "product_sku": item.sku if item else "HM-01",
             "lot_number": batch_lot.batch_number,
+            "lot_status": lot_st,
+            "warning": lot_warn,
             "production_order_number": "N/A",
             "customer_name": "Fabrika Dahili Stok",
             "customer_id": None,
             "quantity": float(batch_lot.quantity),
             "unit": item.unit if item else "KG",
             "warehouse": batch_lot.warehouse,
-            "status": "IN_STOCK",
-            "status_label": "Depoda Aktif",
-            "can_receive": True,
+            "status": lot_st,
+            "status_label": st_label,
+            "can_receive": lot_st == "Serbest",
             "can_dispatch": False,
             "child_box_count": 0
         }

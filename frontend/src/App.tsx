@@ -23,6 +23,9 @@ import { CustomersManagement } from './views/CustomersManagement';
 import { SuppliersManagement } from './views/SuppliersManagement';
 import { GoodsReceiptManagement } from './views/GoodsReceiptManagement';
 import { PackagingStation } from './views/PackagingStation';
+import { QualityPending } from './views/QualityPending';
+import { QualityTemplates } from './views/QualityTemplates';
+import { QualityCoaList } from './views/QualityCoaList';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
@@ -70,6 +73,8 @@ const MainShell: React.FC = () => {
 
       if (roleStr.includes('admin') || roleStr.includes('yönetici') || roleStr.includes('yonetici')) {
         setCurrentView('factory_dashboard');
+      } else if (roleStr.includes('kalite')) {
+        setCurrentView('quality_pending');
       } else if (roleStr.includes('bayi') || roleStr.includes('b2b')) {
         setCurrentView('orders');
       } else if (roleStr.includes('depo')) {
@@ -142,7 +147,7 @@ const MainShell: React.FC = () => {
 
           <main className="p-4 md:p-8 max-w-7xl w-full mx-auto pb-28 md:pb-8 print:p-0 print:m-0 print:max-w-none">
             {/* 1. ÜRETİM YÖNETİMİ */}
-            {currentView === 'factory_dashboard' && <FactoryDashboard />}
+            {currentView === 'factory_dashboard' && <FactoryDashboard onNavigate={setCurrentView} />}
             {currentView === 'bom_management' && <BomManagement />}
             {currentView === 'packaging_station' && <PackagingStation />}
 
@@ -164,6 +169,11 @@ const MainShell: React.FC = () => {
 
             {/* 5. FİNANSAL YÖNETİM */}
             {currentView === 'dashboard' && <Dashboard />}
+
+            {/* 6. KALİTE YÖNETİMİ */}
+            {currentView === 'quality_pending' && <QualityPending onNavigate={setCurrentView} />}
+            {currentView === 'quality_templates' && <QualityTemplates />}
+            {currentView === 'quality_coas' && <QualityCoaList />}
 
             {/* İZLENEBİLİRLİK (ŞECERE) */}
             {currentView === 'traceability' && <Traceability />}

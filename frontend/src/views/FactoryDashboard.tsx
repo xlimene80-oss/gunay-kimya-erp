@@ -11,7 +11,9 @@ import {
   Leaf,
   Boxes,
   AlertCircle,
-  Check
+  Check,
+  ShieldAlert,
+  ChevronRight
 } from 'lucide-react';
 
 interface BomIngredient {
@@ -50,13 +52,29 @@ interface FactoryOrder {
   bom_ingredients?: BomIngredient[];
 }
 
-export const FactoryDashboard: React.FC = () => {
+interface FactoryDashboardProps {
+  onNavigate?: (view: string) => void;
+}
+
+export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }) => {
   const [orders, setOrders] = useState<FactoryOrder[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [pendingQcCount, setPendingQcCount] = useState<number>(0);
+
+  const fetchQualityMetrics = async () => {
+    try {
+      const res = await axios.get('/api/quality/dashboard-metrics');
+      if (res.data && res.data.success && res.data.data) {
+        setPendingQcCount(res.data.data.pending_count || 0);
+      }
+    } catch (e) {
+      // Non-fatal if metrics call fails
+    }
+  };
 
   const fetchOrders = async () => {
     try {
@@ -77,7 +95,11 @@ export const FactoryDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
-    const interval = setInterval(fetchOrders, 5000); // 5 saniyede bir polling
+    fetchQualityMetrics();
+    const interval = setInterval(() => {
+      fetchOrders();
+      fetchQualityMetrics();
+    }, 5000); // 5 saniyede bir polling
     return () => clearInterval(interval);
   }, [activeOrderId]);
 
@@ -202,7 +224,7 @@ export const FactoryDashboard: React.FC = () => {
       )}
 
       {/* KPI METRIC CARDS (Rule 2: 3px top border, icon in soft box with module color, dark text) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Card 1: Aktif Üretim Emirleri (mod-uretim) */}
         <div className="bg-surface border border-border border-t-[3px] border-t-mod-uretim rounded-2xl p-5 shadow-card relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -235,7 +257,34 @@ export const FactoryDashboard: React.FC = () => {
           <div className="mt-2 text-[11px] text-text-muted">Paslanmaz Reaktör-01 ve Mikserler</div>
         </div>
 
-        {/* Card 3: Karbon Ayak İzi (mod-stok) */}
+        {/* Card 3: Kalite Bekleyen Lot (Uyarı rengi - Kontrol Bekleyenler Ekranına Yönlendirme) */}
+        <div
+          onClick={() => onNavigate && onNavigate('quality_pending')}
+          className={`bg-surface border border-border border-t-[3px] border-t-warning rounded-2xl p-5 shadow-card relative overflow-hidden transition-all ${
+            onNavigate ? 'cursor-pointer hover:shadow-md hover:border-warning/60 active:scale-[0.99] group' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Kalite Bekleyen Lot</span>
+            <div className="w-9 h-9 rounded-xl bg-warning-soft text-warning flex items-center justify-center shrink-0 border border-warning-border">
+              <ShieldAlert className="w-5 h-5 text-warning" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-black text-warning font-mono">{pendingQcCount}</span>
+            <span className="text-xs text-text-muted font-medium">Lot Karantinada</span>
+          </div>
+          <div className="mt-2 text-[11px] text-text-muted flex items-center justify-between">
+            <span>Kontrol bekleyen hammadde / mamul</span>
+            {onNavigate && (
+              <span className="text-warning font-bold inline-flex items-center gap-0.5 text-[10px] group-hover:underline">
+                İncele <ChevronRight className="w-3 h-3" />
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Card 4: Karbon Ayak İzi (mod-stok) */}
         <div className="bg-surface border border-border border-t-[3px] border-t-mod-stok rounded-2xl p-5 shadow-card relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Karbon Ayak İzi</span>
@@ -252,7 +301,7 @@ export const FactoryDashboard: React.FC = () => {
           <div className="mt-2 text-[11px] text-text-muted">Yeşil Mutabakat & ISO 14067 Uyumlu</div>
         </div>
 
-        {/* Card 4: Hazır Palet & Koli (mod-finans) */}
+        {/* Card 5: Hazır Palet & Koli (mod-finans) */}
         <div className="bg-surface border border-border border-t-[3px] border-t-mod-finans rounded-2xl p-5 shadow-card relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Hazır Palet & Koli</span>

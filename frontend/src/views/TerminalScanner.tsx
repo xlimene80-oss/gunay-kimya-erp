@@ -40,6 +40,8 @@ interface ScannedResultData {
   warehouse: string;
   status: string;
   status_label: string;
+  lot_status?: string | null;
+  warning?: string | null;
   can_receive: boolean;
   can_dispatch: boolean;
   child_box_count?: number;
@@ -689,7 +691,20 @@ export const TerminalScanner: React.FC = () => {
                 </div>
 
                 <div className="p-3 bg-white rounded-xl border border-[#C5E8BA]">
-                  <span className="text-[11px] font-bold text-text-muted uppercase block">Parti / Lot & Emir</span>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[11px] font-bold text-text-muted uppercase block">Parti / Lot & Emir</span>
+                    {scannedCard.lot_status && (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        scannedCard.lot_status === 'Serbest'
+                          ? 'bg-success-soft text-success border border-success-border'
+                          : scannedCard.lot_status === 'Karantina'
+                          ? 'bg-warning-soft text-warning border border-warning-border'
+                          : 'bg-danger-soft text-danger border border-danger-border'
+                      }`}>
+                        {scannedCard.status_label || scannedCard.lot_status}
+                      </span>
+                    )}
+                  </div>
                   <span className="font-mono font-extrabold text-text text-sm sm:text-base block mt-0.5">
                     {scannedCard.lot_number}
                   </span>
@@ -712,12 +727,30 @@ export const TerminalScanner: React.FC = () => {
                 </div>
               </div>
 
+              {/* Quality & Safety Warning Callout */}
+              {scannedCard.warning && (
+                <div className="p-4 rounded-xl bg-danger-soft border-2 border-danger-border flex items-start gap-3 text-left">
+                  <AlertTriangle className="w-6 h-6 text-danger shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-black text-danger-text uppercase tracking-wide">
+                      UYARI: Kalite Engeli
+                    </h4>
+                    <p className="text-xs sm:text-sm font-bold text-danger-text/90 mt-0.5">
+                      {scannedCard.warning}
+                    </p>
+                    <p className="text-[11px] text-danger-text/70 mt-1">
+                      Bu lotun Kalite Kontrol birimi tarafından serbest bırakılması gerekmektedir. Üretim, paketleme veya sevkiyata aktarılamaz.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <button
                   onClick={handleReceiveAction}
-                  disabled={actionLoading !== null}
-                  className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-sm sm:text-base bg-[#4CAC30] text-white hover:bg-[#439c2a] transition shadow-xs flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-50"
+                  disabled={actionLoading !== null || scannedCard.can_receive === false}
+                  className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-sm sm:text-base bg-[#4CAC30] text-white hover:bg-[#439c2a] transition shadow-xs flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {actionLoading === 'RECEIVE' ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
@@ -729,8 +762,8 @@ export const TerminalScanner: React.FC = () => {
 
                 <button
                   onClick={handleDispatchAction}
-                  disabled={actionLoading !== null}
-                  className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-sm sm:text-base bg-[#302480] text-white hover:bg-[#1E1654] transition shadow-xs flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-50"
+                  disabled={actionLoading !== null || scannedCard.can_dispatch === false}
+                  className="min-h-[52px] py-3.5 px-5 rounded-xl font-black text-sm sm:text-base bg-[#302480] text-white hover:bg-[#1E1654] transition shadow-xs flex items-center justify-center gap-2.5 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {actionLoading === 'DISPATCH' ? (
                     <Loader2 className="w-5 h-5 animate-spin" />

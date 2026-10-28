@@ -25,6 +25,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[STARTUP ADMIN SEED ERROR] Failed to ensure admin user: {e}")
 
+    # 4. Ensure Quality Management columns, tables and templates are migrated & seeded
+    try:
+        from app.quality_migration import run_quality_migration
+        await run_quality_migration()
+    except Exception as e:
+        print(f"[STARTUP QUALITY MIGRATION ERROR] Quality module migration notice: {e}")
+
     yield
     # Shutdown: Dispose engine connection pool
     await engine.dispose()
