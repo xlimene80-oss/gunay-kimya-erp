@@ -19,9 +19,66 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[STARTUP SEED INFO] Seed initialization notice: {e}")
 
+    # 3. Ensure primary admin user (admin@gunaykimya.com) exists with ADMIN role
+    try:
+        await ensure_admin_user()
+    except Exception as e:
+        print(f"[STARTUP ADMIN SEED ERROR] Failed to ensure admin user: {e}")
+
     yield
     # Shutdown: Dispose engine connection pool
     await engine.dispose()
+
+async def ensure_admin_user():
+    """
+    Ensure admin@gunaykimya.com exists in the database with the ADMIN role.
+    If not present, automatically seeds it using the ADMIN_PASSWORD environment variable.
+    """
+    from sqlalchemy import select
+    from app.core.config import async_session_factory, settings
+    from app.core.security import get_password_hash
+    from app.models.auth import User, Role, UserRole
+
+    target_email = "admin@gunaykimya.com"
+    admin_password = os.getenv("ADMIN_PASSWORD") or settings.ADMIN_PASSWORD or "Admin123!"
+
+    async with async_session_factory() as session:
+        stmt = select(User).where(User.email == target_email)
+        res = await session.execute(stmt)
+        user = res.scalar_one_or_none()
+
+        if user:
+            print(f"[STARTUP INFO] Admin kullanıcısı '{target_email}' veritabanında mevcut.")
+            return
+
+        print(f"[STARTUP INFO] '{target_email}' veritabanında bulunamadı. ADMIN_PASSWORD ile otomatik oluşturuluyor...")
+
+        # Ensure ADMIN role exists
+        role_stmt = select(Role).where(Role.role_name == "ADMIN")
+        role_res = await session.execute(role_stmt)
+        admin_role = role_res.scalar_one_or_none()
+
+        if not admin_role:
+            admin_role = Role(role_name="ADMIN", description="Tam Yetkili Sistem Yöneticisi")
+            session.add(admin_role)
+            await session.flush()
+
+        # Create admin user
+        new_admin = User(
+            email=target_email,
+            full_name="Kemal Günay (Sistem Yöneticisi)",
+            hashed_password=get_password_hash(admin_password),
+            is_active=True
+        )
+        session.add(new_admin)
+        await session.flush()
+
+        # Assign ADMIN role
+        user_role = UserRole(user_id=new_admin.id, role_id=admin_role.id)
+        session.add(user_role)
+        await session.commit()
+        print(f"[STARTUP SUCCESS] Admin kullanıcısı '{target_email}' başarıyla oluşturuldu ve ADMIN rolü atandı.")
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
