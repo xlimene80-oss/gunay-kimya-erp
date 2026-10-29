@@ -129,6 +129,18 @@ class ProductionOrder(Base, TimestampMixin):
     printed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     printed_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
+    # Cost Tracking ($ USD)
+    total_material_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), 
+        default=Decimal("0.0000"), 
+        nullable=True
+    )
+    unit_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), 
+        default=Decimal("0.0000"), 
+        nullable=True
+    )
+
     # Relationships
     recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="production_orders", lazy="selectin")
     cari: Mapped[Optional["CariAccount"]] = relationship("CariAccount", foreign_keys=[cari_id], lazy="selectin")
@@ -161,6 +173,18 @@ class ProductionIngredientConsumption(Base, TimestampMixin):
         nullable=False
     )
     quantity_consumed: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False)
+
+    # Cost Tracking ($ USD)
+    unit_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), 
+        default=Decimal("0.0000"), 
+        nullable=True
+    )
+    total_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), 
+        default=Decimal("0.0000"), 
+        nullable=True
+    )
 
     # Relationships
     production_order: Mapped["ProductionOrder"] = relationship("ProductionOrder", back_populates="ingredient_consumptions")

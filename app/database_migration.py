@@ -41,6 +41,7 @@ async def run_all_migrations():
                 ("sds_file_name", "VARCHAR(255)", "VARCHAR(255)"),
                 ("sds_revision_date", "DATE", "DATE"),
                 ("hazard_notes", "TEXT", "TEXT"),
+                ("default_unit_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
             ]
 
             # 3. Columns for inventory_batch_lots
@@ -49,6 +50,20 @@ async def run_all_migrations():
                 ("qc_notes", "TEXT", "TEXT"),
                 ("bin_id", "INTEGER", "INTEGER"),
                 ("bin_code", "VARCHAR(50)", "VARCHAR(50)"),
+                ("unit_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+                ("total_material_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+            ]
+
+            # 4. Columns for mfg_production_orders
+            order_cols = [
+                ("total_material_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+                ("unit_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+            ]
+
+            # 5. Columns for mfg_production_ingredient_consumptions
+            consumption_cols = [
+                ("unit_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+                ("total_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
             ]
 
             if is_sqlite:
@@ -66,6 +81,20 @@ async def run_all_migrations():
                     if col_name not in existing_lot_cols:
                         await conn.execute(text(f"ALTER TABLE inventory_batch_lots ADD COLUMN {col_name} {sqlite_def}"))
                         print(f"[MIGRATION SUCCESS] Added column 'inventory_batch_lots.{col_name}' (SQLite).")
+
+                res_orders = await conn.execute(text("PRAGMA table_info(mfg_production_orders)"))
+                existing_order_cols = [r[1] for r in res_orders.fetchall()]
+                for col_name, _, sqlite_def in order_cols:
+                    if col_name not in existing_order_cols:
+                        await conn.execute(text(f"ALTER TABLE mfg_production_orders ADD COLUMN {col_name} {sqlite_def}"))
+                        print(f"[MIGRATION SUCCESS] Added column 'mfg_production_orders.{col_name}' (SQLite).")
+
+                res_consumptions = await conn.execute(text("PRAGMA table_info(mfg_production_ingredient_consumptions)"))
+                existing_cons_cols = [r[1] for r in res_consumptions.fetchall()]
+                for col_name, _, sqlite_def in consumption_cols:
+                    if col_name not in existing_cons_cols:
+                        await conn.execute(text(f"ALTER TABLE mfg_production_ingredient_consumptions ADD COLUMN {col_name} {sqlite_def}"))
+                        print(f"[MIGRATION SUCCESS] Added column 'mfg_production_ingredient_consumptions.{col_name}' (SQLite).")
             else:
                 # PostgreSQL safe ADD COLUMN IF NOT EXISTS
                 for col_name, pg_def, _ in item_cols:
@@ -79,6 +108,18 @@ async def run_all_migrations():
                         await conn.execute(text(f"ALTER TABLE inventory_batch_lots ADD COLUMN IF NOT EXISTS {col_name} {pg_def}"))
                     except Exception as col_err:
                         logger.warning(f"[MIGRATION NOTICE] inventory_batch_lots.{col_name}: {col_err}")
+
+                for col_name, pg_def, _ in order_cols:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE mfg_production_orders ADD COLUMN IF NOT EXISTS {col_name} {pg_def}"))
+                    except Exception as col_err:
+                        logger.warning(f"[MIGRATION NOTICE] mfg_production_orders.{col_name}: {col_err}")
+
+                for col_name, pg_def, _ in consumption_cols:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE mfg_production_ingredient_consumptions ADD COLUMN IF NOT EXISTS {col_name} {pg_def}"))
+                    except Exception as col_err:
+                        logger.warning(f"[MIGRATION NOTICE] mfg_production_ingredient_consumptions.{col_name}: {col_err}")
 
         print("[MIGRATION SUCCESS] All database schema migrations verified successfully without data loss.")
         logger.info("[MIGRATION SUCCESS] All database schema migrations verified successfully.")

@@ -16,7 +16,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Loader2,
-  Info
+  Info,
+  DollarSign
 } from 'lucide-react';
 
 interface RiskStatusData {
@@ -46,10 +47,24 @@ interface CheckBondItem {
   status: string;
 }
 
+interface ProductionCostAnalytics {
+  total_production_spend_usd: number;
+  average_unit_cost_usd: number;
+  total_produced_volume_kg: number;
+  completed_orders_count: number;
+  ingredient_spend_breakdown: Array<{
+    name: string;
+    sku: string;
+    total_quantity_kg: number;
+    total_cost_usd: number;
+  }>;
+}
+
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [productionCosts, setProductionCosts] = useState<ProductionCostAnalytics | null>(null);
   const [currentBalance] = useState<number>(142500.0);
   const [riskData, setRiskData] = useState<RiskStatusData>({
     cari_id: 1,
@@ -136,6 +151,12 @@ export const Dashboard: React.FC = () => {
       const bondRes = await axios.get('/api/v1/caris/checks-bonds/maturities?days_ahead=90');
       if (bondRes.data && bondRes.data.length > 0) {
         setCheckBonds(bondRes.data);
+      }
+
+      // 3. Attempt to fetch production USD cost analytics
+      const prodRes = await axios.get('/api/v1/production/costs/analytics');
+      if (prodRes.data) {
+        setProductionCosts(prodRes.data);
       }
     } catch (err) {
       // Use fallback chemical dealer mock data on fresh local setup
@@ -392,6 +413,69 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 5. Production USD Cost Analytics Card */}
+      {productionCosts && (
+        <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 text-white rounded-2xl p-6 shadow-xl border border-emerald-500/30">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-emerald-500/20">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-xl">
+                <DollarSign className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  Üretim & Hammadde Maliyet Analizi ($ USD)
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    BOM & FEFO Entegre
+                  </span>
+                </h2>
+                <p className="text-xs text-emerald-200/70 mt-0.5">
+                  Kalite onaylı lotlardan FEFO prensibiyle tüketilen kimyasal hammaddelerin net maliyeti
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <span className="text-xs text-emerald-300 block">Ortalama Birim Maliyet</span>
+                <span className="text-xl font-black font-mono text-emerald-400">
+                  ${productionCosts.average_unit_cost_usd.toFixed(2)}
+                  <span className="text-xs font-normal text-emerald-200/70 ml-1">/ kg</span>
+                </span>
+              </div>
+              <div className="text-right pl-6 border-l border-emerald-500/20">
+                <span className="text-xs text-emerald-300 block">Toplam Hammadde Harcaması</span>
+                <span className="text-2xl font-black font-mono text-white">
+                  ${productionCosts.total_production_spend_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {productionCosts.ingredient_spend_breakdown && productionCosts.ingredient_spend_breakdown.length > 0 && (
+            <div className="mt-4 pt-2">
+              <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider block mb-2.5">
+                En Yüksek Tüketilen Hammaddeler (USD Harcama Payı)
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {productionCosts.ingredient_spend_breakdown.slice(0, 4).map((ing, idx) => (
+                  <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div className="text-xs font-medium text-emerald-100 truncate">{ing.name}</div>
+                    <div className="flex items-baseline justify-between mt-2">
+                      <span className="font-mono font-bold text-white text-sm">
+                        ${ing.total_cost_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[11px] font-mono text-emerald-300">
+                        {ing.total_quantity_kg.toLocaleString('tr-TR')} kg
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Recent Checks & Promissory Notes Section */}
       <div className="bg-surface border border-border rounded-2xl p-6 shadow-xl space-y-5">

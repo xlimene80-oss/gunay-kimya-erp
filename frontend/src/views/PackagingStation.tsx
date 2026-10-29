@@ -12,7 +12,8 @@ import {
   ChevronUp,
   Tag,
   RefreshCw,
-  ShieldAlert
+  ShieldAlert,
+  DollarSign
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { printLabels, renderBarcodeSvgString, PrintLabelData } from '../services/printService';
@@ -40,6 +41,8 @@ interface PackagingOrder {
   signal_word?: string;
   ghs_pictograms?: string;
   un_number?: string;
+  total_material_cost_usd?: number;
+  unit_cost_usd?: number;
 }
 
 interface BoxItem {
@@ -455,22 +458,33 @@ export const PackagingStation: React.FC = () => {
         </div>
       </div>
 
-      {/* Feedback Toast */}
+      {/* Feedback Toast & Hard Block Alert */}
       {feedback && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between ${
+          className={`p-4 rounded-xl border flex items-start justify-between shadow-sm transition-all ${
             feedback.type === 'success'
               ? 'bg-success-soft border-success-border text-success'
-              : 'bg-danger-soft border-danger-border text-danger'
+              : 'bg-danger-soft border-danger border-l-4 border-l-danger text-danger ring-1 ring-danger/20'
           }`}
         >
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            {feedback.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-            <span>{feedback.message}</span>
+          <div className="flex items-start gap-2.5 text-sm font-semibold">
+            {feedback.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-danger animate-pulse" />
+            )}
+            <div>
+              {feedback.type === 'error' && (feedback.message.includes('Üretim Engellendi') || feedback.message.includes('durumundadır')) && (
+                <div className="text-xs uppercase font-extrabold text-danger tracking-wider mb-0.5">
+                  Operasyon Engellendi (Kalite & Stok Kilidi)
+                </div>
+              )}
+              <span className="text-xs font-semibold leading-relaxed block">{feedback.message}</span>
+            </div>
           </div>
           <button
             onClick={() => setFeedback(null)}
-            className="text-xs uppercase font-bold opacity-75 hover:opacity-100"
+            className="text-xs uppercase font-bold opacity-75 hover:opacity-100 ml-4 shrink-0"
           >
             Kapat
           </button>
@@ -548,6 +562,18 @@ export const PackagingStation: React.FC = () => {
                       {o.pallet_count > 0 ? `${o.pallet_count} Palet / ${o.box_count} Koli` : 'Barkod Üretilmedi'}
                     </span>
                   </div>
+
+                  {o.unit_cost_usd !== undefined && o.unit_cost_usd > 0 && (
+                    <div className="mt-2 pt-2 border-t border-dashed border-border/70 flex items-center justify-between text-[11px]">
+                      <span className="text-emerald-700 font-medium inline-flex items-center gap-1">
+                        <DollarSign className="w-3 h-3 text-emerald-600" />
+                        BOM Maliyeti:
+                      </span>
+                      <span className="font-mono font-bold text-emerald-800">
+                        ${o.unit_cost_usd.toFixed(2)}/{o.product_unit || 'adet'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}

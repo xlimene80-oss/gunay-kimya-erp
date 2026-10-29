@@ -14,7 +14,9 @@ import {
   Check,
   ShieldAlert,
   ChevronRight,
-  FileWarning
+  FileWarning,
+  DollarSign,
+  Ban
 } from 'lucide-react';
 
 interface BomIngredient {
@@ -36,6 +38,8 @@ interface FactoryOrder {
   current_status: number;
   status_label: string;
   total_price: number;
+  total_material_cost_usd?: number;
+  unit_cost_usd?: number;
   created_at: string;
   product_name: string;
   product_code: string;
@@ -53,6 +57,13 @@ interface FactoryOrder {
   bom_ingredients?: BomIngredient[];
 }
 
+interface ProductionCostMetrics {
+  total_production_spend_usd: number;
+  average_unit_cost_usd: number;
+  total_produced_volume_kg: number;
+  completed_orders_count: number;
+}
+
 interface FactoryDashboardProps {
   onNavigate?: (view: string) => void;
 }
@@ -62,10 +73,22 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
   const [loading, setLoading] = useState<boolean>(true);
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string; isHardBlock?: boolean } | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [pendingQcCount, setPendingQcCount] = useState<number>(0);
   const [sdsWarningCount, setSdsWarningCount] = useState<number>(0);
+  const [costAnalytics, setCostAnalytics] = useState<ProductionCostMetrics | null>(null);
+
+  const fetchCostAnalytics = async () => {
+    try {
+      const res = await axios.get('/api/v1/production/costs/analytics');
+      if (res.data) {
+        setCostAnalytics(res.data);
+      }
+    } catch (e) {
+      // Non-fatal
+    }
+  };
 
   const fetchQualityMetrics = async () => {
     try {
@@ -104,12 +127,36 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
   useEffect(() => {
     fetchOrders();
     fetchQualityMetrics();
+    fetchCostAnalytics();
     const interval = setInterval(() => {
       fetchOrders();
       fetchQualityMetrics();
+      fetchCostAnalytics();
     }, 5000); // 5 saniyede bir polling
     return () => clearInterval(interval);
   }, [activeOrderId]);
+
+  // Validate Approved Stock (Hard Block check)
+  const handleValidateStock = async (orderId: number) => {
+    setActionLoading(`val-${orderId}`);
+    try {
+      await axios.post(`/api/v1/production/orders/${orderId}/validate-stock`);
+      setNotification({
+        type: 'success',
+        message: '✓ Onaylı stok kontrolü başarılı! Reçetedeki tüm hammaddeler Serbest lotlardan karşılanabilir.',
+        isHardBlock: false
+      });
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || 'Stok doğrulama sırasında bir hata oluştu.';
+      setNotification({
+        type: 'error',
+        message: msg,
+        isHardBlock: msg.includes('Üretim Engellendi') || msg.includes('Yetersiz Onaylı Stok')
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   // Plan BOM
   const handlePlanBOM = async (orderId: number) => {
@@ -119,13 +166,18 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
       setNotification({ type: 'success', message: res.data.message || 'Reçete (BOM) başarıyla hesaplandı!' });
       await fetchOrders();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.response?.data?.detail || 'BOM planlama hatası' });
+      const msg = err.response?.data?.detail || 'BOM planlama hatası';
+      setNotification({
+        type: 'error',
+        message: msg,
+        isHardBlock: msg.includes('Üretim Engellendi') || msg.includes('Yetersiz Onaylı Stok')
+      });
     } finally {
       setActionLoading(null);
     }
   };
 
-  // Start Production (FEFO Stock Deduction)
+  // Start Production (FEFO Stock Deduction with Hard Block)
   const handleStartProduction = async (orderId: number) => {
     setActionLoading(`start-${orderId}`);
     try {
@@ -135,8 +187,14 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
         message: `✓ FEFO stok çekimi yapıldı! Karbon Ayak İzi: ${res.data.carbon_footprint_kg} kg CO2e. Reaktörde kimyasal sentez başladı.`
       });
       await fetchOrders();
+      await fetchCostAnalytics();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.response?.data?.detail || 'FEFO hammadde çekim hatası' });
+      const msg = err.response?.data?.detail || 'FEFO hammadde çekim hatası';
+      setNotification({
+        type: 'error',
+        message: msg,
+        isHardBlock: msg.includes('Üretim Engellendi') || msg.includes('Yetersiz Onaylı Stok')
+      });
     } finally {
       setActionLoading(null);
     }
@@ -149,8 +207,14 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
       const res = await axios.post(`/api/manufacturing/orders/${orderId}/advance-phase`);
       setNotification({ type: 'success', message: res.data.message || 'Üretim fazı ilerletildi!' });
       await fetchOrders();
+      await fetchCostAnalytics();
     } catch (err: any) {
-      setNotification({ type: 'error', message: err.response?.data?.detail || 'Faz ilerletme hatası' });
+      const msg = err.response?.data?.detail || 'Faz ilerletme hatası';
+      setNotification({
+        type: 'error',
+        message: msg,
+        isHardBlock: msg.includes('Üretim Engellendi') || msg.includes('Yetersiz Onaylı Stok')
+      });
     } finally {
       setActionLoading(null);
     }
@@ -205,26 +269,43 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
         </div>
       </div>
 
-      {/* NOTIFICATION TOAST */}
+      {/* NOTIFICATION TOAST & HARD BLOCK ALERT */}
       {notification && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs transition-all ${
+          className={`p-4 rounded-xl border flex items-start justify-between text-xs transition-all shadow-md ${
             notification.type === 'success'
               ? 'bg-success-soft border-success-border text-success-text'
+              : notification.isHardBlock
+              ? 'bg-danger-soft border-danger border-l-4 border-l-danger text-danger-text ring-1 ring-danger/30'
               : 'bg-danger-soft border-danger-border text-danger-text'
           }`}
         >
-          <div className="flex items-center gap-3 font-medium">
+          <div className="flex items-start gap-3 font-medium">
             {notification.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+              <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
+            ) : notification.isHardBlock ? (
+              <Ban className="w-5 h-5 text-danger shrink-0 mt-0.5 animate-pulse" />
             ) : (
-              <AlertCircle className="w-4 h-4 text-danger shrink-0" />
+              <AlertCircle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
             )}
-            <span>{notification.message}</span>
+            <div>
+              {notification.isHardBlock && (
+                <div className="font-extrabold text-danger uppercase tracking-wider text-[11px] mb-1 flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  Hard Block Engeli: Onaylı Stok Yetersiz
+                </div>
+              )}
+              <span className="font-semibold text-xs leading-relaxed">{notification.message}</span>
+              {notification.isHardBlock && (
+                <p className="text-[11px] text-text-muted mt-1 font-normal">
+                  İşlem geri alındı (rollback). Karantina veya bloke lotlar kullanılamaz; üretime başlamak için kalite kontrol onayını tamamlayın veya hammadde girişi yapın.
+                </p>
+              )}
+            </div>
           </div>
           <button
             onClick={() => setNotification(null)}
-            className="text-xs underline ml-4 hover:opacity-80"
+            className="text-xs underline ml-4 hover:opacity-80 shrink-0 font-bold"
           >
             Kapat
           </button>
@@ -232,7 +313,26 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
       )}
 
       {/* KPI METRIC CARDS (Rule 2: 3px top border, icon in soft box with module color, dark text) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+        {/* Card 0: Hammadde Maliyeti ($ USD) */}
+        <div className="bg-surface border border-border border-t-[3px] border-t-emerald-600 rounded-2xl p-5 shadow-card relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Hammadde Maliyeti</span>
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-500/20">
+              <DollarSign className="w-5 h-5 text-emerald-600" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-emerald-700 font-mono">
+              ${(costAnalytics?.total_production_spend_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="mt-2 text-[11px] text-text-muted flex items-center justify-between">
+            <span>Ort: ${(costAnalytics?.average_unit_cost_usd ?? 0).toFixed(2)}/kg</span>
+            <span className="font-mono text-emerald-700 font-semibold text-[10px]">USD ($)</span>
+          </div>
+        </div>
+
         {/* Card 1: Aktif Üretim Emirleri (mod-uretim) */}
         <div className="bg-surface border border-border border-t-[3px] border-t-mod-uretim rounded-2xl p-5 shadow-card relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -425,6 +525,18 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
                       {o.reactor_name}
                     </span>
                   </div>
+
+                  {o.total_material_cost_usd !== undefined && o.total_material_cost_usd > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-dashed border-border/80 flex items-center justify-between text-[11px]">
+                      <span className="text-emerald-700 font-medium inline-flex items-center gap-1">
+                        <DollarSign className="w-3 h-3 text-emerald-600" />
+                        Maliyet:
+                      </span>
+                      <span className="font-mono font-bold text-emerald-800">
+                        ${o.total_material_cost_usd.toFixed(2)} (${o.unit_cost_usd?.toFixed(2)}/{o.order_unit || 'kg'})
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -452,6 +564,39 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
                   </span>
                 </div>
               </div>
+
+              {/* SELECTED ORDER USD COST SUMMARY (VIBRANT UI) */}
+              {selectedOrder.total_material_cost_usd !== undefined && selectedOrder.total_material_cost_usd > 0 && (
+                <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/10 border border-emerald-500/30 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-md">
+                      <DollarSign className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-emerald-950 block uppercase tracking-wider">
+                        Reçete (BOM) Dolar Maliyet Analizi
+                      </span>
+                      <span className="text-text-muted text-[11px]">
+                        FEFO tüketimi ile gerçekleşen hammadde maliyeti ($ USD)
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-right">
+                    <div>
+                      <span className="text-[10px] text-text-muted block uppercase font-medium">Birim Maliyet</span>
+                      <span className="font-mono font-bold text-emerald-800 text-sm">
+                        ${selectedOrder.unit_cost_usd?.toFixed(4)} / {selectedOrder.order_unit}
+                      </span>
+                    </div>
+                    <div className="pl-4 border-l border-emerald-500/30">
+                      <span className="text-[10px] text-text-muted block uppercase font-medium">Toplam Hammadde</span>
+                      <span className="font-mono font-black text-emerald-900 text-base">
+                        ${selectedOrder.total_material_cost_usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 5-STEP VISUAL PROGRESS STEPPER */}
               <div className="relative my-6">
@@ -506,6 +651,16 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
 
               {/* ACTION BUTTONS TOOLBAR */}
               <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-border">
+                <button
+                  onClick={() => handleValidateStock(selectedOrder.order_no)}
+                  disabled={actionLoading !== null}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl font-bold text-xs flex items-center gap-1.5 border border-rose-200 shadow-sm transition"
+                  title="Üretim öncesi yalnızca onaylı (Serbest) stok kontrolü yapar"
+                >
+                  <Ban className="w-3.5 h-3.5 text-rose-600" />
+                  Stok Kontrolü (Hard Block)
+                </button>
+
                 {selectedOrder.phase === 'SIPARIS_ALINDI' && (
                   <button
                     onClick={() => handlePlanBOM(selectedOrder.order_no)}

@@ -68,6 +68,13 @@ class Item(Base, TimestampMixin):
     sds_revision_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
     hazard_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Cost Tracking ($ USD)
+    default_unit_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), 
+        default=Decimal("0.0000"), 
+        nullable=True
+    )
+
     # Relationships
     batches: Mapped[List["BatchLot"]] = relationship(
         "BatchLot", 
@@ -112,6 +119,18 @@ class BatchLot(Base, TimestampMixin):
     )
     status: Mapped[str] = mapped_column(String(30), default="Serbest", index=True, nullable=False) # Karantina, Serbest, Bloke, Reddedildi
     qc_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Cost Tracking ($ USD)
+    unit_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), 
+        default=Decimal("0.0000"), 
+        nullable=True
+    )
+    total_material_cost_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), 
+        default=Decimal("0.0000"), 
+        nullable=True
+    )
 
     # Warehouse Shelf / Bin Location (Depo Raf / Göz Konumu)
     bin_id: Mapped[Optional[int]] = mapped_column(

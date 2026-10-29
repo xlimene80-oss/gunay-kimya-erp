@@ -4,6 +4,7 @@ import datetime
 from decimal import Decimal
 import logging
 from sqlalchemy import select, text
+from sqlalchemy.orm import selectinload
 from app.core.config import async_session_factory
 from app.models.auth import Role, ModulePermission, User
 from app.models.inventory import (
@@ -667,6 +668,86 @@ async def seed_new_modules_data():
                             print(f"[MODULES SEED] Created in-stock pallet {scen['stock_pallet']} (500 KG) remaining in warehouse.")
 
                 print("[MODULES SEED] Traceability 3-order, 3-customer, 1-stock-pallet scenario verified successfully.")
+
+            # -------------------------------------------------------------
+            # 8. BOM & Production USD Costing Seed
+            # -------------------------------------------------------------
+            cost_benchmarks = {
+                "labsa": Decimal("2.1000"),
+                "sles": Decimal("1.8500"),
+                "naoh": Decimal("0.9500"),
+                "kostik": Decimal("0.9500"),
+                "glis": Decimal("1.4000"),
+                "esn": Decimal("14.5000"),
+                "esans": Decimal("14.5000"),
+                "su": Decimal("0.0100"),
+                "koko": Decimal("1.7500"),
+                "betain": Decimal("1.7500"),
+                "tuz": Decimal("0.1500"),
+                "sitr": Decimal("1.3000"),
+                "hipo": Decimal("0.4500"),
+                "klor": Decimal("0.4500"),
+            }
+
+            for it in all_items:
+                name_l = (it.name or "").lower()
+                sku_l = (it.sku or "").lower()
+                assigned_cost = Decimal("1.5000")
+                for k, v in cost_benchmarks.items():
+                    if k in name_l or k in sku_l:
+                        assigned_cost = v
+                        break
+                if not it.default_unit_cost_usd or it.default_unit_cost_usd == Decimal("0.0000"):
+                    it.default_unit_cost_usd = assigned_cost
+
+            # Update raw material batch lots
+            all_lots = (await session.execute(select(BatchLot))).scalars().all()
+            for lot in all_lots:
+                if not lot.unit_cost_usd or lot.unit_cost_usd == Decimal("0.0000"):
+                    if lot.item and lot.item.default_unit_cost_usd:
+                        lot.unit_cost_usd = lot.item.default_unit_cost_usd
+
+            # Backfill consumptions and completed production orders
+            all_consumptions = (await session.execute(
+                select(ProductionIngredientConsumption).options(selectinload(ProductionIngredientConsumption.raw_material_batch_lot))
+            )).scalars().all()
+
+            for c in all_consumptions:
+                if not c.unit_cost_usd or c.unit_cost_usd == Decimal("0.0000"):
+                    c_lot = c.raw_material_batch_lot
+                    cost = c_lot.unit_cost_usd if (c_lot and c_lot.unit_cost_usd) else Decimal("1.8500")
+                    c.unit_cost_usd = cost
+                    c.total_cost_usd = c.quantity_consumed * cost
+
+            all_orders = (await session.execute(
+                select(ProductionOrder).options(
+                    selectinload(ProductionOrder.ingredient_consumptions),
+                    selectinload(ProductionOrder.recipe).selectinload(Recipe.ingredients)
+                )
+            )).scalars().all()
+
+            for o in all_orders:
+                if o.status == ProductionStatus.COMPLETED and (not o.total_material_cost_usd or o.total_material_cost_usd == Decimal("0.0000")):
+                    order_spend = sum((c.total_cost_usd or Decimal("0.0000") for c in o.ingredient_consumptions), Decimal("0.0000"))
+                    if order_spend == Decimal("0.0000") and o.recipe:
+                        scale = o.target_quantity / (o.recipe.base_quantity or Decimal("1000.000"))
+                        for ing in o.recipe.ingredients:
+                            ing_cost = (ing.raw_material.default_unit_cost_usd if ing.raw_material and ing.raw_material.default_unit_cost_usd else Decimal("1.8500"))
+                            order_spend += ing.required_quantity * scale * ing_cost
+
+                    o.total_material_cost_usd = order_spend
+                    o.unit_cost_usd = order_spend / o.target_quantity if o.target_quantity > Decimal("0.000") else Decimal("0.0000")
+
+                    # Also update corresponding finished good batch lot
+                    lot_num = o.lot_number or f"LOT-{o.order_number}"
+                    f_lot = (await session.execute(
+                        select(BatchLot).where(BatchLot.batch_number == lot_num)
+                    )).scalar_one_or_none()
+                    if f_lot:
+                        f_lot.unit_cost_usd = o.unit_cost_usd
+                        f_lot.total_material_cost_usd = o.total_material_cost_usd
+
+            print("[MODULES SEED] BOM and USD Production Costing demo records initialized successfully.")
 
             await session.commit()
             print("[MODULES SEED SUCCESS] All demo and master data verified/seeded successfully.")

@@ -24,6 +24,7 @@ from app.models.inventory import (
     LabelPrintLog, BarcodeSequence
 )
 from app.core.events import trigger_production_completed_event
+from app.services.bom_engine import BOMEngine, is_status_approved
 from app.schemas.manufacturing import (
     RecipeCreate, RecipeResponse,
     ProductionOrderCreate, ProductionOrderResponse, ProductionOrderUpdate
@@ -270,60 +271,12 @@ async def update_production_order_status(
             )
 
         recipe = order.recipe
-        scale_factor = order.target_quantity / recipe.base_quantity
 
-        # Step 1: Pre-validate that all raw chemicals have sufficient stock
-        deduction_plan = []
-        for ingredient in recipe.ingredients:
-            required_qty = ingredient.required_quantity * scale_factor
-            
-            # Fetch available batch lots for this raw material (FEFO: earliest expiration first, ONLY Serbest lots)
-            batches_query = (
-                select(BatchLot)
-                .where(
-                    and_(
-                        BatchLot.item_id == ingredient.raw_material_item_id,
-                        BatchLot.quantity > Decimal("0.000"),
-                        or_(BatchLot.status == "Serbest", BatchLot.status == None)
-                    )
-                )
-                .order_by(BatchLot.expiration_date.asc().nulls_last(), BatchLot.received_at.asc())
-            )
-            available_batches = (await db.scalars(batches_query)).all()
-            total_available = sum(b.quantity for b in available_batches)
+        # Step 1 & 2: Execute BOM Quality Validation and Dynamic FEFO Consumption
+        if not order.ingredient_consumptions:
+            await BOMEngine.execute_fefo_consumption(db, order)
 
-            if total_available < required_qty:
-                raw_mat_name = ingredient.raw_material.name if ingredient.raw_material else f"ID {ingredient.raw_material_item_id}"
-                raw_mat_sku = ingredient.raw_material.sku if ingredient.raw_material else "N/A"
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"Reçete stok ayrımı başarısız: '{raw_mat_name}' (SKU: {raw_mat_sku}) için serbest kullanılabilir stok yetersiz. "
-                        f"Gereken: {required_qty:.3f}, Serbest Stok: {total_available:.3f}. (Karantinadaki veya blokeli lotlar üretime verilemez)."
-                    )
-                )
-            
-            deduction_plan.append((available_batches, required_qty))
-
-        # Step 2: Deduct calculated raw chemical stock from batch lots & log Greenfield Traceability
-        for available_batches, required_qty in deduction_plan:
-            remaining_to_deduct = required_qty
-            for batch in available_batches:
-                if remaining_to_deduct <= Decimal("0.000"):
-                    break
-                deduct_amount = min(batch.quantity, remaining_to_deduct)
-                batch.quantity -= deduct_amount
-                remaining_to_deduct -= deduct_amount
-
-                # Greenfield Traceability Logging: Records EXACTLY which supplier lot, from which irsaliye, was consumed
-                db.add(ProductionIngredientConsumption(
-                    production_order_id=order.id,
-                    raw_material_batch_lot_id=batch.id,
-                    quantity_consumed=deduct_amount
-                ))
-
-        # Step 3: Add target output volume to the finished good item's stock
-        finished_batch_number = f"LOT-{order.order_number}"
+        finished_batch_number = order.lot_number or f"LOT-{order.order_number}"
         today = datetime.date.today()
         expiration_date = today + datetime.timedelta(days=730)  # Standard 2-year shelf life for chemicals
 
@@ -346,6 +299,8 @@ async def update_production_order_status(
 
         if output_batch:
             output_batch.quantity += order.target_quantity
+            output_batch.unit_cost_usd = order.unit_cost_usd
+            output_batch.total_material_cost_usd = (output_batch.total_material_cost_usd or Decimal("0.0000")) + (order.total_material_cost_usd or Decimal("0.0000"))
             if is_outgoing_qc:
                 output_batch.status = "Karantina"
                 output_batch.qc_notes = out_qc_notes
@@ -357,7 +312,9 @@ async def update_production_order_status(
                 quantity=order.target_quantity,
                 expiration_date=expiration_date,
                 status=out_status,
-                qc_notes=out_qc_notes
+                qc_notes=out_qc_notes,
+                unit_cost_usd=order.unit_cost_usd,
+                total_material_cost_usd=order.total_material_cost_usd
             )
             db.add(output_batch)
 
@@ -1097,8 +1054,8 @@ async def get_order_details(
                 raw_item = ing.raw_material
                 req_qty = round(float(ing.required_quantity) * scale_factor, 3)
                 
-                # Hammadde deposundaki toplam stok
-                matching_lots = [b for b in all_raw_lots if b.item_id == ing.raw_material_item_id and b.quantity > Decimal("0")]
+                # Hammadde deposundaki toplam ONAYLI stok (Karantina ve Bloke hariç)
+                matching_lots = [b for b in all_raw_lots if b.item_id == ing.raw_material_item_id and b.quantity > Decimal("0") and is_status_approved(b.status)]
                 avail_qty = round(float(sum(b.quantity for b in matching_lots)), 3)
 
                 # FEFO (Son Tüketim Tarihi En Yakın Lot)
@@ -1130,6 +1087,8 @@ async def get_order_details(
             "current_status": current_status,
             "status_label": status_text,
             "total_price": total_price,
+            "total_material_cost_usd": float(o.total_material_cost_usd or Decimal("0.0000")),
+            "unit_cost_usd": float(o.unit_cost_usd or Decimal("0.0000")),
             "created_at": o.created_at.strftime("%Y-%m-%d %H:%M") if o.created_at else None,
             "product_name": output_item.name if output_item else "Kimyasal Ürün",
             "product_code": output_item.sku if output_item else "GNY-SKU",
@@ -1278,13 +1237,10 @@ async def start_production_fefo(
     if not order.recipe or not order.recipe.ingredients:
         raise HTTPException(status_code=400, detail="Reçete veya hammadde içerikleri tanımlı değil.")
 
-    scale_factor = float(order.target_quantity) / float(order.recipe.base_quantity or 1000.0)
+    # Reçetedeki hammaddeleri BOMEngine ile doğrula ve FEFO ile çek
+    exec_result = await BOMEngine.execute_fefo_consumption(db, order)
 
-    # Her hammadde için FEFO/FIFO stok düşümü
-    consumed_records = []
-    total_carbon_emission = Decimal("0.00")
-
-    # Kimyasal karbon emisyon faktörleri (kg CO2e / kg)
+    # Karbon ayak izi katsayısı hesaplama
     emission_factors = {
         "SLES": Decimal("0.24"),
         "LABSA": Decimal("0.38"),
@@ -1293,67 +1249,27 @@ async def start_production_fefo(
         "ESANS": Decimal("0.08"),
         "SU": Decimal("0.002")
     }
+    total_carbon_emission = Decimal("0.00")
+    consumed_records = []
+    for c in exec_result.consumptions:
+        item_name_upper = c.raw_material_name.upper()
+        ef = Decimal("0.15")
+        if "SLES" in item_name_upper: ef = emission_factors["SLES"]
+        elif "LABSA" in item_name_upper: ef = emission_factors["LABSA"]
+        elif "KOSTIK" in item_name_upper or "NAOH" in item_name_upper: ef = emission_factors["NaOH"]
+        elif "GLISERIN" in item_name_upper: ef = emission_factors["GLISERIN"]
+        elif "ESANS" in item_name_upper: ef = emission_factors["ESANS"]
+        elif "SU" in item_name_upper: ef = emission_factors["SU"]
 
-    for ing in order.recipe.ingredients:
-        needed_qty = Decimal(str(round(float(ing.required_quantity) * scale_factor, 3)))
-        raw_item = ing.raw_material
-
-        # FEFO sıralı stok sorgusu: expiration_date ASC NULLS LAST, sonra received_at ASC
-        lots_stmt = (
-            select(BatchLot)
-            .where(
-                and_(
-                    BatchLot.item_id == ing.raw_material_item_id,
-                    BatchLot.warehouse == "Hammadde Deposu",
-                    BatchLot.quantity > Decimal("0.000")
-                )
-            )
-            .order_by(BatchLot.expiration_date.asc().nulls_last(), BatchLot.received_at.asc())
-        )
-        available_lots = (await db.scalars(lots_stmt)).all()
-        total_avail = sum(b.quantity for b in available_lots)
-
-        if total_avail < needed_qty:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Hammadde Yetersiz! '{raw_item.name if raw_item else ing.raw_material_item_id}' için gereken {needed_qty} {raw_item.unit if raw_item else 'kg'}, mevcut stok: {total_avail}."
-            )
-
-        rem_needed = needed_qty
-        for lot in available_lots:
-            if rem_needed <= Decimal("0.000"):
-                break
-            deduct = min(lot.quantity, rem_needed)
-            lot.quantity -= deduct
-            rem_needed -= deduct
-
-            # Tüketim şeceresine kaydet
-            consumption = ProductionIngredientConsumption(
-                production_order_id=order.id,
-                raw_material_batch_lot_id=lot.id,
-                quantity_consumed=deduct
-            )
-            db.add(consumption)
-
-            # Karbon ayak izi katsayısı hesaplama
-            item_name_upper = (raw_item.name if raw_item else "").upper()
-            ef = Decimal("0.15") # Varsayılan
-            if "SLES" in item_name_upper: ef = emission_factors["SLES"]
-            elif "LABSA" in item_name_upper: ef = emission_factors["LABSA"]
-            elif "KOSTIK" in item_name_upper or "NAOH" in item_name_upper: ef = emission_factors["NaOH"]
-            elif "GLISERIN" in item_name_upper: ef = emission_factors["GLISERIN"]
-            elif "ESANS" in item_name_upper: ef = emission_factors["ESANS"]
-            elif "SU" in item_name_upper: ef = emission_factors["SU"]
-
-            total_carbon_emission += deduct * ef
-
-            consumed_records.append({
-                "raw_material": raw_item.name if raw_item else f"Hammadde #{ing.raw_material_item_id}",
-                "lot_number": lot.batch_number,
-                "expiration_date": lot.expiration_date.strftime("%d.%m.%Y") if lot.expiration_date else "N/A",
-                "quantity_deducted": float(deduct),
-                "remaining_lot_stock": float(lot.quantity)
-            })
+        total_carbon_emission += Decimal(str(c.quantity_consumed)) * ef
+        consumed_records.append({
+            "raw_material": c.raw_material_name,
+            "lot_number": c.batch_number,
+            "expiration_date": c.expiration_date or "N/A",
+            "quantity_deducted": c.quantity_consumed,
+            "unit_cost_usd": c.unit_cost_usd,
+            "total_cost_usd": c.total_cost_usd
+        })
 
     # Reaktör karıştırma elektrik tüketimi karbon katkısı (~0.04 kg CO2e / kg mamul)
     total_carbon_emission += order.target_quantity * Decimal("0.04")
@@ -1367,12 +1283,14 @@ async def start_production_fefo(
 
     return {
         "success": True,
-        "message": "FEFO stok çekimi başarıyla tamamlandı. Reaktörde kimyasal sentez başladı.",
+        "message": f"FEFO stok çekimi başarıyla tamamlandı. Toplam Hammadde Maliyeti: ${exec_result.total_material_cost_usd:.2f} (${exec_result.unit_cost_usd:.2f}/kg).",
         "order_id": order.id,
         "order_number": order.order_number,
         "phase": order.phase,
         "lot_number": order.lot_number,
         "carbon_footprint_kg": float(order.carbon_footprint_kg),
+        "total_material_cost_usd": exec_result.total_material_cost_usd,
+        "unit_cost_usd": exec_result.unit_cost_usd,
         "deductions": consumed_records
     }
 
@@ -1594,6 +1512,8 @@ class PackagingOrderSummary(BaseModel):
     signal_word: Optional[str] = None
     ghs_pictograms: Optional[str] = None
     un_number: Optional[str] = None
+    total_material_cost_usd: Optional[Decimal] = None
+    unit_cost_usd: Optional[Decimal] = None
 
 
 class GenerateBarcodesPayload(BaseModel):
@@ -1668,7 +1588,9 @@ async def list_packaging_orders(
                 hazard_class=out_item.hazard_class if out_item else None,
                 signal_word=out_item.signal_word if out_item else None,
                 ghs_pictograms=out_item.ghs_pictograms if out_item else None,
-                un_number=out_item.un_number if out_item else None
+                un_number=out_item.un_number if out_item else None,
+                total_material_cost_usd=o.total_material_cost_usd,
+                unit_cost_usd=o.unit_cost_usd
             )
         )
 
