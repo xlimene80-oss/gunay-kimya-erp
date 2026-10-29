@@ -1,6 +1,6 @@
 services:
   # -------------------------------------------------------------
-  # 1. Backend API Service (FastAPI / Python)
+  # 1. Backend API Service (FastAPI / Python Web Service)
   # -------------------------------------------------------------
   - type: web
     name: gunay-kimya-api
@@ -10,19 +10,24 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      # Neon PostgreSQL bağlantı dizesi (Render Dashboard'da elle girilir)
       - key: DATABASE_URL
         sync: false
+      # JWT token imzalama gizli anahtarı (Render otomatik 64-karakter üretir)
       - key: SECRET_KEY
         generateValue: true
+      # admin@gunaykimya.com için ilk açılış seed şifresi
       - key: ADMIN_PASSWORD
         sync: false
+      # CORS izinli frontend kök URL'si (Statik çevre değişkeni, cross-service referansı içermez)
       - key: FRONTEND_URL
         value: https://gunay-kimya-web.onrender.com
+      # Python runtime versiyonu
       - key: PYTHON_VERSION
         value: 3.11.9
 
   # -------------------------------------------------------------
-  # 2. Frontend Web Application (React / Vite / Static Site)
+  # 2. Frontend Web Application (React / Vite Static Site)
   # -------------------------------------------------------------
   - type: web
     name: gunay-kimya-web
@@ -31,9 +36,11 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     envVars:
+      # Backend API REST kök URL'si (Statik çevre değişkeni, cross-service referansı içermez)
       - key: VITE_API_URL
         value: https://gunay-kimya-api.onrender.com
     routes:
+      # React SPA için istemci tarafı yönlendirmesi (Client-side routing rewrite)
       - type: rewrite
         source: /*
         destination: /index.html
