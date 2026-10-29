@@ -26,6 +26,7 @@ import {
   FileSpreadsheet,
   Award,
   Warehouse,
+  GitFork,
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -60,14 +61,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { user, logout } = useAuth();
 
-  const userRolesStr = (user?.roles || []).map((r) => r.toLowerCase()).join(' ');
+  const userRoles = (user?.roles || []).map((r) => r.toLowerCase());
+  const userRolesStr = userRoles.join(' ');
   const isAdmin = userRolesStr.includes('admin') || userRolesStr.includes('yönetici') || userRolesStr.includes('yonetici');
   const isDepo = userRolesStr.includes('depo');
   const isBayi = userRolesStr.includes('bayi') || userRolesStr.includes('b2b');
   const isMuhasebe = userRolesStr.includes('muhasebe');
+  const isKalite = userRolesStr.includes('kalite');
+  const isUretim = userRolesStr.includes('uretim') || userRolesStr.includes('fabrika_muduru');
 
   let panelSubtitle = 'B2B Bayi Portalı';
   if (isAdmin) panelSubtitle = 'Endüstriyel ERP Kontrol';
+  else if (isKalite) panelSubtitle = 'Kalite & Laboratuvar Portalı';
+  else if (isUretim) panelSubtitle = 'Üretim & Tesis Portalı';
   else if (isDepo) panelSubtitle = 'Depo & Lojistik Portalı';
   else if (isMuhasebe) panelSubtitle = 'Muhasebe & Finans Portalı';
 
@@ -96,6 +102,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Paketleme İstasyonu',
           icon: PackageCheck,
           roles: ['admin', 'uretim', 'fabrika_muduru']
+        },
+        {
+          id: 'traceability',
+          label: 'Parti İzlenebilirliği (Şecere)',
+          icon: GitFork,
+          roles: ['admin', 'uretim', 'kalite', 'fabrika_muduru', 'depo']
         }
       ]
     },
@@ -273,30 +285,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }));
   };
 
+  const checkRoleAccess = (allowedRoles?: string[]) => {
+    if (isAdmin) return true;
+    if (!allowedRoles || allowedRoles.length === 0) return true;
+    return allowedRoles.some((r) => {
+      const lr = r.toLowerCase();
+      if (userRoles.includes(lr)) return true;
+      if (lr === 'bayi' && isBayi) return true;
+      if (lr === 'depo' && isDepo) return true;
+      if (lr === 'muhasebe' && isMuhasebe) return true;
+      if (lr === 'kalite' && isKalite) return true;
+      if ((lr === 'uretim' || lr === 'fabrika_muduru') && isUretim) return true;
+      return false;
+    });
+  };
+
   // Filter groups and items based on role
   const visibleGroups = menuGroups
     .filter((group) => {
       // Finansal Yönetim: strictly hidden from B2B / Bayi!
       if (isBayi && group.id === 'finance') return false;
-      if (isAdmin) return true;
-      return group.roles.some((r) => {
-        if (r === 'bayi' && isBayi) return true;
-        if (r === 'depo' && isDepo) return true;
-        if (r === 'muhasebe' && isMuhasebe) return true;
-        return false;
-      });
+      return checkRoleAccess(group.roles);
     })
     .map((group) => {
       const visibleItems = group.items.filter((item) => {
         if (isBayi && group.id === 'finance') return false;
-        if (isAdmin) return true;
-        if (!item.roles) return true;
-        return item.roles.some((r) => {
-          if (r === 'bayi' && isBayi) return true;
-          if (r === 'depo' && isDepo) return true;
-          if (r === 'muhasebe' && isMuhasebe) return true;
-          return false;
-        });
+        return checkRoleAccess(item.roles);
       });
       return { ...group, items: visibleItems };
     })

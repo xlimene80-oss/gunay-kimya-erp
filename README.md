@@ -59,6 +59,12 @@ Proje kök dizininde yer alan `render.yaml` dosyası sayesinde sistem Render.com
 |---|---|---|
 | `VITE_API_URL` | Backend REST API kök adresi | `gunay-kimya-api` URL'sinden otomatik gelir |
 
+### ⚠️ Dosya Depolama ve Render Geçici Dosya Sistemi (Ephemeral Storage) Uyarısı
+- Render web servislerinde dosya sistemi geçicidir (ephemeral storage).
+- Ürün Güvenlik Bilgi Formları (GBF/SDS PDF belgeleri) backend tarafından `uploads/sds` dizinine kaydedilir ve `/api/v1/hazmat/sds-files/{filename}` üzerinden güvenle sunulur.
+- Sunucu yeniden başladığında veya yeni bir deploy yapıldığında yerel geçici disk sıfırlanabilir.
+- **Kalıcı Üretim (Production) Önerisi:** GBF belgelerinin kalıcı olması için Render Dashboard'dan bir **Render Persistent Disk** bağlanmalı (`/opt/render/project/src/uploads` dizinine mount edilerek) veya belgeler AWS S3 / Cloudflare R2 nesne depolama havuzuna yönlendirilmelidir. Bilgi yönetimi ve önizleme amaçlı demo dosyaları veritabanında metadata olarak korunur.
+
 ---
 
 ## 📱 Mobil Cihaz / Telefon ile Test Etme (Cloudflare Tunnel ile HTTPS)
@@ -107,7 +113,9 @@ Mobil cihazlarda (Android Chrome ve iOS Safari) **kamera ile barkod tarama (WebR
 
 ## 🗂️ Temel Modül Haritası
 
-- **Üretim Yönetimi:** Canlı Sipariş & 5s Faz Takibi, Reçete (BOM) Hesaplayıcı, Paketleme İstasyonu (SSCC-18 etiketleme).
-- **Stok & Lojistik:** Stok Durumu & FEFO Erimeleri, Ürün & Hammadde SKU Kataloğu, Hazır Palet & Koli Merkezi, El Terminali.
+- **Üretim Yönetimi:** Canlı Sipariş & 5s Faz Takibi, Reçete (BOM) Hesaplayıcı, Paketleme İstasyonu (SSCC-18 etiketleme), Parti İzlenebilirliği (Şecere).
+- **Stok & Lojistik:** Stok Durumu & FEFO Erimeleri, Ürün & Hammadde SKU Kataloğu (GHS tehlike piktogramları, UN/CAS no, GBF takibi), Depo Yerleşimi (Bölge & Raf matrisi), Hazır Palet & Koli Merkezi, El Terminali.
+- **Kalite Yönetimi:** Giriş & Çıkış Kalite Kontrol Bekleyenler, Test Şablonları (pH, yoğunluk, viskozite vb.), Analiz Sertifikası (CoA) Üretimi ve PDF İndirme.
 - **Satın Alma:** e-İrsaliye (UBL-TR XML) ile Mal Kabul, Tedarikçi Yönetimi.
 - **Satış & Sevkiyat:** B2B Sipariş Giriş, Müşteri/Cari Yönetimi, Sevkiyat Doğrulama.
+- **İzlenebilirlik (Şecere):** Siparişten sevk irsaliyesine, üretim reaktöründen tedarikçi mal kabul lotlarına kadar çift yönlü şecere haritası.

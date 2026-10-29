@@ -8,9 +8,12 @@ from app.routers import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Startup: Ensure database schema / tables are created
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # 1. Startup: Safe, non-destructive, idempotent database migrations (Postgres & SQLite)
+    try:
+        from app.database_migration import run_all_migrations
+        await run_all_migrations()
+    except Exception as e:
+        print(f"[STARTUP MIGRATION ERROR] Database migration failure: {e}")
 
     # 2. Auto-seed initial demo master data if database is empty (no-op if records exist)
     try:
@@ -25,19 +28,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[STARTUP ADMIN SEED ERROR] Failed to ensure admin user: {e}")
 
-    # 4. Ensure Quality Management columns, tables and templates are migrated & seeded
+    # 4. Idempotent seed data for new modules (Quality, Hazmat, Warehouse Zones/Bins, Traceability)
     try:
-        from app.quality_migration import run_quality_migration
-        await run_quality_migration()
+        from app.modules_seed import seed_new_modules_data
+        await seed_new_modules_data()
     except Exception as e:
-        print(f"[STARTUP QUALITY MIGRATION ERROR] Quality module migration notice: {e}")
-
-    # 5. Ensure Hazmat & Warehouse Zones columns, tables and seed data are migrated
-    try:
-        from app.hazmat_migration import run_hazmat_migration
-        await run_hazmat_migration()
-    except Exception as e:
-        print(f"[STARTUP HAZMAT MIGRATION ERROR] Hazmat module migration notice: {e}")
+        print(f"[STARTUP MODULES SEED ERROR] Modules seed notice: {e}")
 
     yield
     # Shutdown: Dispose engine connection pool

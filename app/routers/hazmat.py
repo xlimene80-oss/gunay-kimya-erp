@@ -172,15 +172,15 @@ async def toggle_warehouse_zone(zone_id: int, db: AsyncSession = Depends(get_db)
 
 @router.get("/bins")
 async def list_warehouse_bins(
-    storage_class: Optional[str] = Query(None),
-    active_only: bool = Query(True),
+    storage_class: Optional[str] = None,
+    active_only: bool = True,
     db: AsyncSession = Depends(get_db)
 ):
     """List all bins with zone details, optionally filtered by storage class."""
     stmt = select(WarehouseBin).join(WarehouseZone)
-    if active_only:
+    if active_only is True or str(active_only).lower() == "true":
         stmt = stmt.where(WarehouseBin.is_active == True, WarehouseZone.is_active == True)
-    if storage_class:
+    if storage_class and isinstance(storage_class, str):
         stmt = stmt.where(WarehouseZone.storage_class == storage_class)
 
     stmt = stmt.order_by(WarehouseBin.code)
