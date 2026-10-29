@@ -6,7 +6,16 @@ import logging
 from sqlalchemy import select, text
 from app.core.config import async_session_factory
 from app.models.auth import Role, ModulePermission, User
-from app.models.inventory import Item, BatchLot, ItemCategory
+from app.models.inventory import (
+    Item, BatchLot, ItemCategory,
+    BarcodeUnit, BarcodeType, BarcodeStatus,
+    DispatchOrder, DispatchStatus
+)
+from app.models.cari import CariAccount, CariType, RiskStatus
+from app.models.manufacturing import (
+    Recipe, RecipeIngredient, ProductionOrder, ProductionStatus,
+    ProductionIngredientConsumption
+)
 from app.models.quality import (
     LotStatus, InspectionDecision,
     QualityTestTemplate, QualityTestItem,
@@ -438,28 +447,226 @@ async def seed_new_modules_data():
                     print("[MODULES SEED] Created demo inspection and CoA COA-2026-00084.")
 
             # -------------------------------------------------------------
-            # 7. Traceability Scenario Lot: LOT-SIP-2026-99214
+            # 7. Traceability Scenario: LOT-SIP-2026-99214 (Hammadde Lotu)
+            # En az 3 üretim emrine girer, 3 müşteriye sevk edilir, 1 palet depoda kalır.
             # -------------------------------------------------------------
-            target_trace_lot = "LOT-SIP-2026-99214"
-            trace_lot_record = (await session.execute(
-                select(BatchLot).where(BatchLot.batch_number == target_trace_lot)
-            )).scalar_one_or_none()
+            target_raw_item = sles if sles else (all_items[0] if all_items else None)
+            target_out_item = sivi_sabun if sivi_sabun else (all_items[1] if len(all_items) > 1 else target_raw_item)
 
-            if not trace_lot_record and sivi_sabun:
-                a_bin = bin_obj_map.get("A-02")
-                trace_lot_record = BatchLot(
-                    item_id=sivi_sabun.id,
-                    batch_number=target_trace_lot,
-                    warehouse="Mamul Ürün Deposu",
-                    quantity=Decimal("2500.000"),
-                    expiration_date=today + datetime.timedelta(days=720),
-                    status=LotStatus.SERBEST.value,
-                    bin_id=a_bin.id if a_bin else None,
-                    bin_code=a_bin.code if a_bin else "A-02",
-                    qc_notes="Sipariş SIP-2026-99214 için üretilmiş parti şecere lotu."
-                )
-                session.add(trace_lot_record)
-                print(f"[MODULES SEED] Created traceability scenario lot {target_trace_lot}.")
+            if target_raw_item and target_out_item:
+                target_raw_code = "LOT-SIP-2026-99214"
+                raw_lot = (await session.execute(
+                    select(BatchLot).where(BatchLot.batch_number == target_raw_code)
+                )).scalar_one_or_none()
+
+                if not raw_lot:
+                    a_bin_raw = bin_obj_map.get("A-01")
+                    raw_lot = BatchLot(
+                        item_id=target_raw_item.id,
+                        batch_number=target_raw_code,
+                        warehouse="Hammadde Deposu",
+                        quantity=Decimal("10000.000"),
+                        expiration_date=today + datetime.timedelta(days=720),
+                        status=LotStatus.SERBEST.value,
+                        bin_id=a_bin_raw.id if a_bin_raw else None,
+                        bin_code=a_bin_raw.code if a_bin_raw else "A-01",
+                        qc_notes="Tedarikçi BASF Türk Kimya mal kabulü. TS 5606 uygun."
+                    )
+                    session.add(raw_lot)
+                    await session.flush()
+                    print(f"[MODULES SEED] Created raw material lot {target_raw_code}.")
+                else:
+                    # Ensure it is assigned to target_raw_item
+                    raw_lot.item_id = target_raw_item.id
+                    raw_lot.status = LotStatus.SERBEST.value
+                    await session.flush()
+
+                # A. Customers (Cari Accounts)
+                customers_data = [
+                    ("Ege Kimya Sanayi ve Ticaret A.Ş.", "3250041280", "Gebze OSB 4. Cadde No:18, Kocaeli"),
+                    ("Marmara Kozmetik & Temizlik Ltd. Şti.", "6120098412", "İkitelli OSB M3 Blok No:44, İstanbul"),
+                    ("Akdeniz Temizlik ve Kimya San. Tic. A.Ş.", "0140029104", "Antalya OSB 2. Kısım 21. Cadde, Antalya"),
+                ]
+                cust_objs = []
+                for title, tax_no, addr in customers_data:
+                    c_stmt = select(CariAccount).where(CariAccount.title == title)
+                    cust = (await session.execute(c_stmt)).scalar_one_or_none()
+                    if not cust:
+                        cust = CariAccount(
+                            code=f"CAR-{tax_no[:6]}",
+                            title=title,
+                            tax_number=tax_no,
+                            tax_office="Sanayi VD",
+                            cari_type=CariType.CUSTOMER,
+                            address=addr,
+                            risk_status=RiskStatus.HEALTHY,
+                            is_active=True
+                        )
+                        session.add(cust)
+                        await session.flush()
+                    cust_objs.append(cust)
+
+                # B. Recipe
+                rec_stmt = select(Recipe).where(Recipe.output_item_id == target_out_item.id)
+                recipe = (await session.execute(rec_stmt)).scalars().first()
+                if not recipe:
+                    recipe = Recipe(
+                        name="Günay Ultra Sıvı El Sabunu Formülü (1000L)",
+                        description="Endüstriyel TS 518 sıvı sabun reçetesi",
+                        output_item_id=target_out_item.id,
+                        base_quantity=Decimal("1000.000")
+                    )
+                    session.add(recipe)
+                    await session.flush()
+
+                # C. 3 Production Orders, Consumptions, Dispatches and Pallets
+                orders_scenario = [
+                    {
+                        "order_no": "SIP-2026-99214",
+                        "finished_lot": "LOT-MAM-SAB-01",
+                        "qty": Decimal("1000.000"),
+                        "consumed_qty": Decimal("150.000"),
+                        "disp_no": "DSP-2026-00412",
+                        "cust": cust_objs[0],
+                        "shipped_pallet": "SSCC-TR-2026-000412",
+                        "shipped_qty": Decimal("500.000"),
+                        "stock_pallet": "SSCC-TR-2026-000101",
+                        "stock_qty": Decimal("500.000"),
+                    },
+                    {
+                        "order_no": "SIP-2026-99215",
+                        "finished_lot": "LOT-MAM-SAB-02",
+                        "qty": Decimal("1000.000"),
+                        "consumed_qty": Decimal("150.000"),
+                        "disp_no": "DSP-2026-00413",
+                        "cust": cust_objs[1],
+                        "shipped_pallet": "SSCC-TR-2026-000413",
+                        "shipped_qty": Decimal("1000.000"),
+                        "stock_pallet": None,
+                        "stock_qty": Decimal("0.000"),
+                    },
+                    {
+                        "order_no": "SIP-2026-99216",
+                        "finished_lot": "LOT-MAM-SAB-03",
+                        "qty": Decimal("1000.000"),
+                        "consumed_qty": Decimal("150.000"),
+                        "disp_no": "DSP-2026-00414",
+                        "cust": cust_objs[2],
+                        "shipped_pallet": "SSCC-TR-2026-000414",
+                        "shipped_qty": Decimal("1000.000"),
+                        "stock_pallet": None,
+                        "stock_qty": Decimal("0.000"),
+                    },
+                ]
+
+                for scen in orders_scenario:
+                    # 1. Dispatch Order
+                    disp_stmt = select(DispatchOrder).where(DispatchOrder.dispatch_number == scen["disp_no"])
+                    disp = (await session.execute(disp_stmt)).scalar_one_or_none()
+                    if not disp:
+                        disp = DispatchOrder(
+                            dispatch_number=scen["disp_no"],
+                            cari_id=scen["cust"].id,
+                            delivery_address=scen["cust"].address or "Kayıtlı Bayi Adresi",
+                            status=DispatchStatus.SHIPPED,
+                            carrier_tracking_code="Günay Kimya Özel Lojistik Filosu"
+                        )
+                        session.add(disp)
+                        await session.flush()
+
+                    # 2. Production Order
+                    po_stmt = select(ProductionOrder).where(ProductionOrder.order_number == scen["order_no"])
+                    po = (await session.execute(po_stmt)).scalar_one_or_none()
+                    if not po:
+                        po = ProductionOrder(
+                            order_number=scen["order_no"],
+                            recipe_id=recipe.id,
+                            target_quantity=scen["qty"],
+                            cari_id=scen["cust"].id,
+                            dispatch_order_id=disp.id,
+                            lot_number=scen["finished_lot"],
+                            pallet_barcode=scen["shipped_pallet"],
+                            status=ProductionStatus.COMPLETED
+                        )
+                        session.add(po)
+                        await session.flush()
+                        print(f"[MODULES SEED] Created Production Order {scen['order_no']} (Lot: {scen['finished_lot']}).")
+
+                    # 3. Finished Good Batch Lot
+                    f_lot = (await session.execute(
+                        select(BatchLot).where(BatchLot.batch_number == scen["finished_lot"])
+                    )).scalar_one_or_none()
+                    if not f_lot:
+                        a_bin_out = bin_obj_map.get("A-02")
+                        f_lot = BatchLot(
+                            item_id=target_out_item.id,
+                            batch_number=scen["finished_lot"],
+                            warehouse="Mamul Ürün Deposu",
+                            quantity=scen["qty"],
+                            expiration_date=today + datetime.timedelta(days=730),
+                            status=LotStatus.SERBEST.value,
+                            bin_id=a_bin_out.id if a_bin_out else None,
+                            bin_code=a_bin_out.code if a_bin_out else "A-02",
+                            qc_notes=f"{scen['order_no']} üretim emrinden mamul dolumu yapıldı. QC Serbest."
+                        )
+                        session.add(f_lot)
+                        await session.flush()
+
+                    # 4. Ingredient Consumption linking LOT-SIP-2026-99214 to this order
+                    cons_stmt = select(ProductionIngredientConsumption).where(
+                        ProductionIngredientConsumption.production_order_id == po.id,
+                        ProductionIngredientConsumption.raw_material_batch_lot_id == raw_lot.id
+                    )
+                    cons = (await session.execute(cons_stmt)).scalar_one_or_none()
+                    if not cons:
+                        cons = ProductionIngredientConsumption(
+                            production_order_id=po.id,
+                            raw_material_batch_lot_id=raw_lot.id,
+                            quantity_consumed=scen["consumed_qty"]
+                        )
+                        session.add(cons)
+                        await session.flush()
+                        print(f"[MODULES SEED] Linked consumption of {target_raw_code} to {scen['order_no']}.")
+
+                    # 5. Shipped Pallet BarcodeUnit
+                    shipped_pal = (await session.execute(
+                        select(BarcodeUnit).where(BarcodeUnit.barcode_string == scen["shipped_pallet"])
+                    )).scalar_one_or_none()
+                    if not shipped_pal:
+                        shipped_pal = BarcodeUnit(
+                            barcode_string=scen["shipped_pallet"],
+                            type=BarcodeType.PALLET,
+                            production_order_id=po.id,
+                            item_id=target_out_item.id,
+                            quantity=scen["shipped_qty"],
+                            status=BarcodeStatus.SHIPPED,
+                            target_cari_id=scen["cust"].id,
+                            dispatch_order_id=disp.id
+                        )
+                        session.add(shipped_pal)
+                        await session.flush()
+
+                    # 6. In-stock Remaining Pallet (for order 1)
+                    if scen.get("stock_pallet"):
+                        stock_pal = (await session.execute(
+                            select(BarcodeUnit).where(BarcodeUnit.barcode_string == scen["stock_pallet"])
+                        )).scalar_one_or_none()
+                        if not stock_pal:
+                            stock_pal = BarcodeUnit(
+                                barcode_string=scen["stock_pallet"],
+                                type=BarcodeType.PALLET,
+                                production_order_id=po.id,
+                                item_id=target_out_item.id,
+                                quantity=scen["stock_qty"],
+                                status=BarcodeStatus.IN_STOCK,
+                                target_cari_id=None,
+                                dispatch_order_id=None
+                            )
+                            session.add(stock_pal)
+                            await session.flush()
+                            print(f"[MODULES SEED] Created in-stock pallet {scen['stock_pallet']} (500 KG) remaining in warehouse.")
+
+                print("[MODULES SEED] Traceability 3-order, 3-customer, 1-stock-pallet scenario verified successfully.")
 
             await session.commit()
             print("[MODULES SEED SUCCESS] All demo and master data verified/seeded successfully.")

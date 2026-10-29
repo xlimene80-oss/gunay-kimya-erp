@@ -102,12 +102,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Paketleme İstasyonu',
           icon: PackageCheck,
           roles: ['admin', 'uretim', 'fabrika_muduru']
-        },
-        {
-          id: 'traceability',
-          label: 'Parti İzlenebilirliği (Şecere)',
-          icon: GitFork,
-          roles: ['admin', 'uretim', 'kalite', 'fabrika_muduru', 'depo']
         }
       ]
     },
@@ -197,7 +191,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'quality',
-      title: 'KALİTE YÖNETİMİ',
+      title: 'KALİTE & İZLENEBİLİRLİK',
       icon: ShieldCheck,
       roles: ['admin', 'kalite', 'uretim', 'depo', 'fabrika_muduru'],
       items: [
@@ -218,6 +212,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Analiz Sertifikaları',
           icon: Award,
           roles: ['admin', 'kalite', 'bayi', 'depo', 'uretim', 'muhasebe']
+        },
+        {
+          id: 'traceability',
+          label: 'İzlenebilirlik',
+          icon: GitFork,
+          roles: ['admin', 'kalite', 'uretim', 'depo', 'fabrika_muduru']
         }
       ]
     },

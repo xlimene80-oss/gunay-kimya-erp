@@ -167,6 +167,36 @@ class ProductionIngredientConsumption(Base, TimestampMixin):
     raw_material_batch_lot: Mapped["BatchLot"] = relationship("BatchLot", lazy="selectin")
 
 
+class RecallSimulationAudit(Base, TimestampMixin):
+    """
+    Immutable audit trail for Product Recall Simulations (Geri Çağırma Simülasyonları).
+    Tracks when a simulation was run, by whom, for what mandatory reason,
+    how many orders/lots/customers were affected, and whether affected lots were blocked.
+    """
+    __tablename__ = "mfg_recall_simulations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    simulation_number: Mapped[str] = mapped_column(String(60), unique=True, index=True, nullable=False)
+    query_identifier: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+    affected_orders_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    affected_lots_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    affected_customers_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    total_produced_qty: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0.000"), nullable=False)
+    total_dispatched_qty: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0.000"), nullable=False)
+    total_in_stock_qty: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0.000"), nullable=False)
+
+    affected_customers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    in_stock_pallets_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    execution_duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    performed_by: Mapped[str] = mapped_column(String(150), default="Sistem Yöneticisi", nullable=False)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    blocked_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 # Backward-compatibility aliases
 BillOfMaterials = Recipe
 BOMItem = RecipeIngredient

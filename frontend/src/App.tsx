@@ -158,7 +158,7 @@ const MainShell: React.FC = () => {
             {currentView === 'products_sds_warning' && <ProductsManagement initialFilter="SDS_WARNING" />}
             {currentView === 'warehouse_layout' && <WarehouseLayout />}
             {currentView === 'pallet_box_center' && <BarcodeCenter />}
-            {currentView === 'scanner' && <TerminalScanner />}
+            {currentView === 'scanner' && <TerminalScanner onNavigate={setCurrentView} />}
 
             {/* 3. SATIN ALMA */}
             {currentView === 'goods_receipt' && <GoodsReceiptManagement />}

@@ -22,7 +22,8 @@ import {
   XCircle,
   Keyboard,
   FileText,
-  MapPin
+  MapPin,
+  GitFork
 } from 'lucide-react';
 import { GhsPictogramGroup } from '../components/GhsPictogram';
 
@@ -60,7 +61,11 @@ interface ScannedResultData {
   child_box_count?: number;
 }
 
-export const TerminalScanner: React.FC = () => {
+interface TerminalScannerProps {
+  onNavigate?: (view: string) => void;
+}
+
+export const TerminalScanner: React.FC<TerminalScannerProps> = ({ onNavigate }) => {
   // Screen / view state
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -830,6 +835,26 @@ export const TerminalScanner: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Traceability Link Button */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const lotOrBarcode = scannedCard.lot_number || scannedCard.barcode_string;
+                    sessionStorage.setItem('traceability_target_query', lotOrBarcode);
+                    if (onNavigate) {
+                      onNavigate('traceability');
+                    } else {
+                      window.dispatchEvent(new CustomEvent('app_navigate', { detail: { view: 'traceability', query: lotOrBarcode } }));
+                    }
+                  }}
+                  className="w-full min-h-[48px] py-3 px-4 rounded-xl font-bold text-xs sm:text-sm bg-white hover:bg-surface text-[#302480] border-2 border-[#302480]/30 hover:border-[#302480] transition shadow-xs flex items-center justify-center gap-2 active:scale-[0.98]"
+                >
+                  <GitFork className="w-4 h-4 text-[#302480]" />
+                  <span>Bu Parti İçin İzlenebilirlik & Şecereyi Aç ({scannedCard.lot_number || scannedCard.barcode_string})</span>
+                </button>
+              </div>
 
               {/* Action Buttons */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">

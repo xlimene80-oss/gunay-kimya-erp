@@ -46,7 +46,7 @@ from app.models.hazmat import (
 # 3. Manufacturing, Recipes & Greenfield Traceability Footprint
 from app.models.manufacturing import (
     Recipe, RecipeIngredient, ProductionOrder, ProductionStatus,
-    ProductionIngredientConsumption,
+    ProductionIngredientConsumption, RecallSimulationAudit,
     BillOfMaterials, BOMItem, WorkOrder, WorkOrderStatus
 )
 
