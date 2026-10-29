@@ -69,6 +69,140 @@ class ProductionCostAnalyticsResponse(BaseModel):
     recent_order_costs: List[Dict[str, Any]]
 
 
+class ProduceableProductItem(BaseModel):
+    product_id: int
+    product_name: str
+    product_sku: str
+    product_unit: str
+    recipe_id: int
+    recipe_name: str
+    base_quantity: float
+    ingredients_count: int
+
+
+class CreateProductionOrderRequest(BaseModel):
+    product_id: Optional[int] = None
+    recipe_id: Optional[int] = None
+    target_quantity: Decimal = Decimal("1000.000")
+    order_number: Optional[str] = None
+    cari_id: Optional[int] = None
+    reactor_name: Optional[str] = "Reaktör-01 (Paslanmaz Mikser)"
+    initial_phase: Optional[str] = "SIPARIS_ALINDI"
+
+
+@router.get("/products", response_model=List[ProduceableProductItem])
+async def list_produceable_products(
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns all finished products that have defined recipes (BOM) for quick order creation.
+    """
+    stmt = (
+        select(Recipe)
+        .options(
+            selectinload(Recipe.output_item),
+            selectinload(Recipe.ingredients)
+        )
+        .order_by(Recipe.id.asc())
+    )
+    recipes = (await db.scalars(stmt)).all()
+    results: List[ProduceableProductItem] = []
+    for r in recipes:
+        out = r.output_item
+        if out:
+            results.append(ProduceableProductItem(
+                product_id=out.id,
+                product_name=out.name,
+                product_sku=out.sku,
+                product_unit=out.unit or "Litre",
+                recipe_id=r.id,
+                recipe_name=r.name,
+                base_quantity=float(r.base_quantity),
+                ingredients_count=len(r.ingredients)
+            ))
+    return results
+
+
+@router.post("/orders", status_code=status.HTTP_201_CREATED)
+async def create_new_production_order(
+    payload: CreateProductionOrderRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Creates a new production batch order in SIPARIS_ALINDI phase with recipe link.
+    """
+    # 1. Resolve Recipe
+    recipe = None
+    if payload.recipe_id:
+        recipe = await db.get(Recipe, payload.recipe_id)
+    elif payload.product_id:
+        recipe = await db.scalar(
+            select(Recipe)
+            .where(Recipe.output_item_id == payload.product_id)
+            .order_by(Recipe.id.desc())
+        )
+
+    if not recipe:
+        recipe = await db.scalar(select(Recipe).order_by(Recipe.id.asc()))
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Üretim için tanımlı bir Reçete (BOM) bulunamadı. Lütfen önce reçete tanımlayınız."
+        )
+
+    # 2. Generate unique order number
+    order_num = payload.order_number
+    if not order_num:
+        count = (await db.scalar(select(func.count(ProductionOrder.id)))) or 0
+        order_num = f"ORD-2026-{(count + 1):04d}"
+        existing = await db.scalar(select(ProductionOrder).where(ProductionOrder.order_number == order_num))
+        if existing:
+            order_num = f"ORD-2026-{(count + 10):04d}"
+
+    target_qty = payload.target_quantity if payload.target_quantity > Decimal("0.000") else Decimal("1000.000")
+    initial_phase = payload.initial_phase or "SIPARIS_ALINDI"
+
+    new_order = ProductionOrder(
+        order_number=order_num,
+        recipe_id=recipe.id,
+        target_quantity=target_qty,
+        status=ProductionStatus.PENDING,
+        phase=initial_phase,
+        cari_id=payload.cari_id or 1,
+        reactor_name=payload.reactor_name or "Reaktör-01 (Paslanmaz Mikser)",
+        carbon_footprint_kg=Decimal("0.00"),
+        lot_number=f"LOT-2026-GNY{order_num.replace('ORD-', '').replace('-', '')[-4:]}"
+    )
+    db.add(new_order)
+    await db.commit()
+    await db.refresh(new_order)
+
+    # Load relationships for details
+    stmt = (
+        select(ProductionOrder)
+        .options(
+            selectinload(ProductionOrder.recipe).selectinload(Recipe.output_item),
+            selectinload(ProductionOrder.recipe).selectinload(Recipe.ingredients).selectinload(RecipeIngredient.raw_material),
+            selectinload(ProductionOrder.cari)
+        )
+        .where(ProductionOrder.id == new_order.id)
+    )
+    loaded_order = await db.scalar(stmt)
+    prod_name = loaded_order.recipe.output_item.name if (loaded_order.recipe and loaded_order.recipe.output_item) else "Kimyasal Ürün"
+
+    return {
+        "success": True,
+        "message": f"'{order_num}' numaralı {prod_name} ({target_qty:.0f} L) üretim emri başarıyla başlatıldı.",
+        "order_id": loaded_order.id,
+        "order_number": loaded_order.order_number,
+        "phase": loaded_order.phase,
+        "target_quantity": float(loaded_order.target_quantity),
+        "status": loaded_order.status.value if hasattr(loaded_order.status, "value") else str(loaded_order.status),
+        "product_name": prod_name
+    }
+
+
 @router.post("/orders/{order_id}/validate-stock", response_model=StockValidationResponse)
 async def validate_production_order_stock(
     order_id: int,

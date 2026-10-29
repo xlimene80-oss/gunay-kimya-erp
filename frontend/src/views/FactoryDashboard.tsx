@@ -16,8 +16,23 @@ import {
   ChevronRight,
   FileWarning,
   DollarSign,
-  Ban
+  Ban,
+  Plus,
+  Play,
+  X,
+  Sparkles
 } from 'lucide-react';
+
+interface ProduceableProduct {
+  product_id: number;
+  product_name: string;
+  product_sku: string;
+  product_unit: string;
+  recipe_id: number;
+  recipe_name: string;
+  base_quantity: number;
+  ingredients_count: number;
+}
 
 interface BomIngredient {
   raw_material_id: number;
@@ -79,6 +94,28 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
   const [sdsWarningCount, setSdsWarningCount] = useState<number>(0);
   const [costAnalytics, setCostAnalytics] = useState<ProductionCostMetrics | null>(null);
 
+  // New Production Order Modal States
+  const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [productsList, setProductsList] = useState<ProduceableProduct[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [orderQuantity, setOrderQuantity] = useState<number>(1000);
+  const [selectedReactor, setSelectedReactor] = useState<string>("Reaktör-01 (Paslanmaz Mikser - 5000L)");
+  const [submittingOrder, setSubmittingOrder] = useState<boolean>(false);
+
+  const fetchProducts = async () => {
+    try {
+      const res = await axios.get('/api/v1/production/products');
+      if (res.data && Array.isArray(res.data)) {
+        setProductsList(res.data);
+        if (res.data.length > 0) {
+          setSelectedProductId(prev => prev ?? res.data[0].product_id);
+        }
+      }
+    } catch (e) {
+      console.warn('Üretilebilir ürünler listesi yüklenemedi:', e);
+    }
+  };
+
   const fetchCostAnalytics = async () => {
     try {
       const res = await axios.get('/api/v1/production/costs/analytics');
@@ -128,6 +165,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
     fetchOrders();
     fetchQualityMetrics();
     fetchCostAnalytics();
+    fetchProducts();
     const interval = setInterval(() => {
       fetchOrders();
       fetchQualityMetrics();
@@ -135,6 +173,72 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
     }, 5000); // 5 saniyede bir polling
     return () => clearInterval(interval);
   }, [activeOrderId]);
+
+  // Create New Production Order
+  const handleCreateOrder = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSubmittingOrder(true);
+    try {
+      const targetProdId = selectedProductId || (productsList.length > 0 ? productsList[0].product_id : 1);
+      const selProd = productsList.find((p) => p.product_id === targetProdId);
+      const res = await axios.post('/api/v1/production/orders', {
+        product_id: targetProdId,
+        recipe_id: selProd?.recipe_id,
+        target_quantity: Number(orderQuantity) || 1000,
+        reactor_name: selectedReactor,
+        initial_phase: 'SIPARIS_ALINDI'
+      });
+
+      const newOrderData = res.data?.data;
+      setNotification({
+        type: 'success',
+        message: `✓ Yeni üretim emri '${newOrderData?.order_number || 'ORD-2026'}' (${newOrderData?.product_name || 'Mamul'}) başarıyla oluşturuldu!`,
+        isHardBlock: false
+      });
+      setShowCreateModal(false);
+      await fetchOrders();
+      if (newOrderData?.id) {
+        setActiveOrderId(newOrderData.id);
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || 'Yeni üretim emri oluşturulurken bir hata oluştu.';
+      setNotification({
+        type: 'error',
+        message: msg,
+        isHardBlock: false
+      });
+    } finally {
+      setSubmittingOrder(false);
+    }
+  };
+
+  // Dynamic FEFO Consumption & USD Cost Calculation (Hard Block Protected)
+  const handleConsumeFefo = async (orderId: number) => {
+    setActionLoading(`consume-${orderId}`);
+    try {
+      const res = await axios.post(`/api/v1/production/orders/${orderId}/consume-fefo`);
+      const data = res.data;
+      const count = data.deductions?.length || 0;
+      const totalCost = Number(data.total_material_cost_usd || 0).toFixed(2);
+      const unitCost = Number(data.unit_cost_usd || 0).toFixed(4);
+      setNotification({
+        type: 'success',
+        message: `✓ BOM Reçete Tüketimi Tamamlandı! ${count} hammadde serbest lotlardan düşüldü. Toplam Maliyet: $${totalCost} (Birim: $${unitCost}/${selectedOrder?.order_unit || 'kg'}). Sipariş Reaktör aşamasına alındı.`,
+        isHardBlock: false
+      });
+      await fetchOrders();
+      await fetchCostAnalytics();
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || 'FEFO hammadde reçete tüketim hatası.';
+      setNotification({
+        type: 'error',
+        message: msg,
+        isHardBlock: msg.includes('Üretim Engellendi') || msg.includes('Yetersiz Onaylı Stok')
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   // Validate Approved Stock (Hard Block check)
   const handleValidateStock = async (orderId: number) => {
@@ -259,6 +363,13 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
               Sistem Aktif (5s)
             </span>
           </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md hover:shadow-lg transition flex items-center gap-2 text-xs font-bold"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            + Yeni Üretim Emri Oluştur
+          </button>
           <button
             onClick={fetchOrders}
             className="px-3.5 py-2 bg-surface hover:bg-bg text-text rounded-xl border border-border shadow-card transition flex items-center gap-2 text-xs font-medium"
@@ -698,18 +809,45 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
 
             {/* 2. SİPARİŞTEN REÇETEYE (BOM) & FEFO STOK AĞACI */}
             <div className="bg-surface border border-border rounded-2xl p-5 shadow-card">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                <div className="flex items-center gap-2">
-                  <Scale className="w-5 h-5 text-text-muted" />
-                  <h3 className="text-base font-bold text-text">
-                    Reçete (BOM) & FEFO Stok Çekim Ağacı
-                  </h3>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-border">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-primary-soft rounded-xl text-primary">
+                    <Scale className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-text">
+                      Reçete (BOM) & FEFO Stok Çekim Ağacı
+                    </h3>
+                    <p className="text-[11px] text-text-muted">
+                      Yalnızca kalite onaylı (Serbest) lotlardan dinamik FEFO tüketimi
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-text-muted font-mono">
-                    Depo: Hammadde Deposu
-                  </span>
-                </div>
+
+                {/* ADIM İLERLETME VE BOM TÜKETİM BUTONLARI (Sevk Edildi Değilse) */}
+                {selectedOrder.phase !== 'SEVK_EDILDI' && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => handleValidateStock(selectedOrder.order_no)}
+                      disabled={actionLoading !== null}
+                      className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+                      title="Onaylı stokları kontrol eder, yetersizlik varsa Hard Block tetikler"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 text-indigo-600" />
+                      {actionLoading === `val-${selectedOrder.order_no}` ? 'Kontrol Ediliyor...' : '1. Onaylı Stok Kontrolü Yap'}
+                    </button>
+
+                    <button
+                      onClick={() => handleConsumeFefo(selectedOrder.order_no)}
+                      disabled={actionLoading !== null}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-2 shadow-md hover:shadow-lg transition disabled:opacity-50"
+                      title="FEFO kuralına göre serbest lotlardan stok düşer, dolar maliyetini kaydeder ve reaktöre aktarır"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      {actionLoading === `consume-${selectedOrder.order_no}` ? 'Tüketiliyor...' : '2. BOM Reçete Tüketimini Başlat'}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {selectedOrder.bom_ingredients && selectedOrder.bom_ingredients.length > 0 ? (
@@ -757,8 +895,34 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
                   </table>
                 </div>
               ) : (
-                <div className="py-6 text-center text-text-muted text-xs">
-                  Reçete henüz yüklenmedi veya hammadde atanmadı.
+                <div className="py-8 text-center bg-bg/50 rounded-xl border border-dashed border-border p-6 space-y-3">
+                  <FlaskConical className="w-8 h-8 text-text-muted mx-auto stroke-1" />
+                  <div>
+                    <h4 className="text-xs font-bold text-text">Reçete Verisi Yükleniyor veya Henüz Tüketilmedi</h4>
+                    <p className="text-[11px] text-text-muted mt-1">
+                      Bu sipariş için yukarıdaki butonları kullanarak onaylı stok kontrolü yapabilir veya doğrudan dinamik BOM tüketimini başlatabilirsiniz.
+                    </p>
+                  </div>
+                  {selectedOrder.phase !== 'SEVK_EDILDI' && (
+                    <div className="flex items-center justify-center gap-2 pt-2">
+                      <button
+                        onClick={() => handleValidateStock(selectedOrder.order_no)}
+                        disabled={actionLoading !== null}
+                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold text-xs flex items-center gap-1.5 transition"
+                      >
+                        <ShieldAlert className="w-3 h-3 text-indigo-600" />
+                        1. Onaylı Stok Kontrolü Yap
+                      </button>
+                      <button
+                        onClick={() => handleConsumeFefo(selectedOrder.order_no)}
+                        disabled={actionLoading !== null}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition"
+                      >
+                        <Play className="w-3 h-3 fill-current" />
+                        2. BOM Reçete Tüketimini Başlat
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -769,6 +933,134 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
           </div>
         )}
       </div>
+
+      {/* YENİ ÜRETİM EMRİ OLUŞTURMA MODALI */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div 
+            className="bg-surface rounded-2xl border border-border shadow-2xl max-w-lg w-full overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-5 border-b border-border bg-emerald-500/10">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-md">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text">Yeni Üretim Emri Oluştur</h3>
+                  <p className="text-xs text-text-muted">Reçeteli mamul seçimi ve reaktör planlaması</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1.5 rounded-lg text-text-muted hover:text-text hover:bg-bg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleCreateOrder} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-text mb-1.5">
+                  Ürün Seçimi (Mamul & Reçete)
+                </label>
+                <select
+                  value={selectedProductId || ''}
+                  onChange={(e) => setSelectedProductId(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-text text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  required
+                >
+                  {productsList.length > 0 ? (
+                    productsList.map((p) => (
+                      <option key={p.product_id} value={p.product_id}>
+                        {p.product_name} ({p.product_sku}) - {p.ingredients_count} Reçete Hammaddesi
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="1">Sıvı El Sabunu 5L (Gliserinli) (GNY-SBN-01)</option>
+                      <option value="2">Endüstriyel Bulaşık Deterjanı 20L (GNY-DTG-01)</option>
+                      <option value="3">Yüzey Temizleyici Çam Kokulu 5L (GNY-YZY-01)</option>
+                      <option value="4">Konsantre Çamaşır Suyu 5L (GNY-KLR-01)</option>
+                    </>
+                  )}
+                </select>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Seçilen mamulün onaylı reçetesi (BOM) sisteme otomatik bağlanır.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text mb-1.5">
+                  Üretim Miktarı (Litre / KG)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    step="50"
+                    value={orderQuantity}
+                    onChange={(e) => setOrderQuantity(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-text font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                    required
+                  />
+                  <span className="absolute right-3.5 top-2.5 text-xs font-bold text-text-muted">
+                    L / KG
+                  </span>
+                </div>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Reçetedeki hammadde oranları bu miktara göre dinamik ölçeklenir.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text mb-1.5">
+                  Üretim Reaktörü / Mikser Hattı
+                </label>
+                <select
+                  value={selectedReactor}
+                  onChange={(e) => setSelectedReactor(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-text text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                >
+                  <option value="Reaktör-01 (Paslanmaz Mikser - 5000L)">Reaktör-01 (Paslanmaz Mikser - 5000L)</option>
+                  <option value="Reaktör-02 (Yüksek Hızlı Homojenizatör - 3000L)">Reaktör-02 (Yüksek Hızlı Homojenizatör - 3000L)</option>
+                  <option value="Reaktör-03 (Isıtmalı Çift Cidarlı Kazan - 2500L)">Reaktör-03 (Isıtmalı Çift Cidarlı Kazan - 2500L)</option>
+                  <option value="Dolum ve Karıştırma Tankı B-4">Dolum ve Karıştırma Tankı B-4</option>
+                </select>
+              </div>
+
+              <div className="pt-4 border-t border-border flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-4 py-2 bg-surface hover:bg-bg text-text rounded-xl border border-border text-xs font-medium transition"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingOrder}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md hover:shadow-lg text-xs font-bold transition flex items-center gap-2 disabled:opacity-50"
+                >
+                  {submittingOrder ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Açılıyor...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Siparişi Aç
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

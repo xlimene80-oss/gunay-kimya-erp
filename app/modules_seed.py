@@ -507,7 +507,7 @@ async def seed_new_modules_data():
                         await session.flush()
                     cust_objs.append(cust)
 
-                # B. Recipe
+                # B. Recipes for Finished Goods
                 rec_stmt = select(Recipe).where(Recipe.output_item_id == target_out_item.id)
                 recipe = (await session.execute(rec_stmt)).scalars().first()
                 if not recipe:
@@ -519,6 +519,72 @@ async def seed_new_modules_data():
                     )
                     session.add(recipe)
                     await session.flush()
+
+                # Additional product recipes
+                item_by_sku = {it.sku: it for it in all_items}
+                additional_recipes = [
+                    {
+                        "out_sku": "GNY-DTG-01",
+                        "name": "Endüstriyel Bulaşık Deterjanı Formülasyonu (1000L)",
+                        "desc": "Yoğun yağ çözücü endüstriyel bulaşık deterjanı",
+                        "ingredients": [
+                            ("LABSA-96", Decimal("120.000")),
+                            ("SLES-70", Decimal("80.000")),
+                            ("NAOH-48", Decimal("25.000")),
+                            ("KOKO-BETAIN", Decimal("30.000")),
+                            ("TUZ-END", Decimal("20.000")),
+                            ("ESN-CAM", Decimal("2.000")),
+                            ("SU-ARIT", Decimal("723.000")),
+                        ]
+                    },
+                    {
+                        "out_sku": "GNY-YZY-01",
+                        "name": "Yüzey Temizleyici Çam Kokulu Formülü (1000L)",
+                        "desc": "Genel zemin ve sert yüzey temizleme solüsyonu",
+                        "ingredients": [
+                            ("SLES-70", Decimal("50.000")),
+                            ("GLIS-99", Decimal("10.000")),
+                            ("ESN-CAM", Decimal("5.000")),
+                            ("SU-ARIT", Decimal("935.000")),
+                        ]
+                    },
+                    {
+                        "out_sku": "GNY-KLR-01",
+                        "name": "Klor Bazlı Çamaşır Suyu %15 (1000L)",
+                        "desc": "Endüstriyel hijyenik klorlu ağartıcı formülasyonu",
+                        "ingredients": [
+                            ("SODYUM-HIPO", Decimal("150.000")),
+                            ("NAOH-48", Decimal("15.000")),
+                            ("SU-ARIT", Decimal("835.000")),
+                        ]
+                    }
+                ]
+
+                for ar in additional_recipes:
+                    out_it = item_by_sku.get(ar["out_sku"])
+                    if out_it:
+                        ex_rec = (await session.execute(
+                            select(Recipe).where(Recipe.output_item_id == out_it.id)
+                        )).scalars().first()
+                        if not ex_rec:
+                            new_r = Recipe(
+                                name=ar["name"],
+                                description=ar["desc"],
+                                output_item_id=out_it.id,
+                                base_quantity=Decimal("1000.000")
+                            )
+                            session.add(new_r)
+                            await session.flush()
+                            for ing_sku, req_q in ar["ingredients"]:
+                                raw_i = item_by_sku.get(ing_sku)
+                                if raw_i:
+                                    session.add(RecipeIngredient(
+                                        recipe_id=new_r.id,
+                                        raw_material_item_id=raw_i.id,
+                                        required_quantity=req_q
+                                    ))
+                            await session.flush()
+                            print(f"[MODULES SEED] Created recipe '{ar['name']}' for {ar['out_sku']}.")
 
                 # C. 3 Production Orders, Consumptions, Dispatches and Pallets
                 orders_scenario = [
