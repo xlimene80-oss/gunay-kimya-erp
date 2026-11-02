@@ -65,6 +65,8 @@ class UserRoleSummary(BaseModel):
 class UserResponse(UserBase):
     id: int
     cari_id: Optional[int] = None
+    cari_title: Optional[str] = None
+    cari_code: Optional[str] = None
     created_at: datetime.datetime
     roles: List[str] = []
 

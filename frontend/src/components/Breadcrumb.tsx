@@ -103,6 +103,11 @@ export const viewMetaMap: Record<string, NavMeta> = {
     item: 'Aday Mülakat Yönetimi',
     badge: 'İşe Alım',
   },
+  user_management: {
+    group: 'SİSTEM & YÖNETİM',
+    item: 'Kullanıcı & Yetki Yönetimi',
+    badge: 'Modül 8',
+  },
   dashboard: {
     group: 'FİNANSAL YÖNETİM',
     item: 'Finansal Genel Bakış',

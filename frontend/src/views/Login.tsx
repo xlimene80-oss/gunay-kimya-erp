@@ -2,14 +2,16 @@ import React, { useState, FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   Lock,
-  Mail,
   AlertCircle,
   Loader2,
   Eye,
   EyeOff,
   Shield,
   Info,
-  Check
+  Check,
+  Building2,
+  Globe,
+  User
 } from 'lucide-react';
 import { MobileAppInstall } from '../components/MobileAppInstall';
 
@@ -24,6 +26,18 @@ export const Login: React.FC = () => {
   const [shake, setShake] = useState<boolean>(false);
   const [showForgotNotice, setShowForgotNotice] = useState<boolean>(false);
 
+  const getIdentityType = (val: string): 'empty' | 'staff' | 'b2b' => {
+    const trimmed = val.trim().toLowerCase();
+    if (!trimmed) return 'empty';
+    const departmentKeywords = ['muhasebe', 'satis', 'satış', 'ik', 'depo', 'uretim', 'üretim', 'admin', 'kalite', 'yonetim', 'yönetim', 'laboratuvar'];
+    if (trimmed.includes('@') || departmentKeywords.includes(trimmed)) {
+      return 'staff';
+    }
+    return 'b2b';
+  };
+
+  const identityType = getIdentityType(email);
+
   const triggerShake = () => {
     setShake(true);
     setTimeout(() => {
@@ -36,7 +50,7 @@ export const Login: React.FC = () => {
     setErrorMessage(null);
 
     if (!email.trim() || !password) {
-      setErrorMessage('Lütfen e-posta adresinizi ve şifrenizi giriniz.');
+      setErrorMessage('Lütfen kullanıcı adı / firma unvanı ve şifrenizi giriniz.');
       triggerShake();
       return;
     }
@@ -237,30 +251,53 @@ export const Login: React.FC = () => {
 
           {/* Login Form */}
           <form className="space-y-4" onSubmit={handleSubmit} noValidate>
-            {/* Email Field */}
+            {/* Identity Field (Email / Department / Company Name) */}
             <div>
-              <label
-                htmlFor="email"
-                className="block text-xs font-semibold text-text uppercase tracking-wider mb-1.5"
-              >
-                E-Posta
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="identity"
+                  className="block text-xs font-semibold text-text uppercase tracking-wider"
+                >
+                  Kullanıcı Adı / E-Posta / Firma Adı
+                </label>
+                {identityType === 'staff' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary bg-primary-soft px-2 py-0.5 rounded-full border border-primary/20 animate-fade-in">
+                    <Building2 className="w-3 h-3" />
+                    Şirket İçi Personel / Admin
+                  </span>
+                )}
+                {identityType === 'b2b' && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/20 animate-fade-in">
+                    <Globe className="w-3 h-3" />
+                    B2B Müşteri / Bayi Girişi
+                  </span>
+                )}
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-text-muted">
-                  <Mail className="w-5 h-5" />
+                  {identityType === 'staff' ? (
+                    <Building2 className="w-5 h-5 text-primary" />
+                  ) : identityType === 'b2b' ? (
+                    <Globe className="w-5 h-5 text-emerald-600" />
+                  ) : (
+                    <User className="w-5 h-5 text-text-muted" />
+                  )}
                 </div>
                 <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
+                  id="identity"
+                  name="identity"
+                  type="text"
+                  autoComplete="username"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ad@sirket.com"
+                  placeholder="ad@gunaykimya.com, muhasebe veya Firma Adı"
                   className="block w-full min-h-[48px] h-12 pl-11 pr-4 bg-bg border border-border rounded-xl text-text placeholder-text-muted text-sm transition-all duration-150 input-brand-focus"
                 />
               </div>
+              <p className="mt-1 text-[11px] text-text-muted">
+                Personel için e-posta veya departman adı; B2B müşterileri için kayıtlı Firma Unvanı.
+              </p>
             </div>
 
             {/* Password Field */}

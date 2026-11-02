@@ -282,6 +282,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           roles: ['admin', 'muhasebe']
         }
       ]
+    },
+    {
+      id: 'admin_management',
+      title: 'SİSTEM & YÖNETİM',
+      icon: ShieldCheck,
+      roles: ['admin'],
+      items: [
+        {
+          id: 'user_management',
+          label: 'Kullanıcı & Yetkiler',
+          icon: Users,
+          roles: ['admin']
+        }
+      ]
     }
   ];
 
@@ -295,7 +309,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       quality: false,
       hr_management: false,
       employee_reports_group: false,
-      finance: false
+      finance: false,
+      admin_management: false
     };
     for (const group of menuGroups) {
       if (group.items.some((it) => it.id === activeView)) {

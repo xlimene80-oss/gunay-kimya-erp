@@ -8,6 +8,9 @@ export interface UserProfile {
   roles: string[];
   is_active: boolean;
   cari_id?: number;
+  cari_title?: string;
+  cari_code?: string;
+  role?: string;
 }
 
 interface AuthContextType {
@@ -113,6 +116,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           full_name: email.split('@')[0],
           roles: payload?.roles || [],
           is_active: true,
+          cari_id: payload?.cari_id,
+          role: payload?.user_role,
         });
       }
     } catch (error: any) {

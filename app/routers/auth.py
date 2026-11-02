@@ -1,7 +1,7 @@
 import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from app.core.security import (
     get_current_user, require_admin_user, check_module_permission
 )
 from app.models.auth import User, Role, UserRole, ModulePermission, UserRoleEnum
+from app.models.cari import CariAccount
 from app.schemas.auth import (
     UserCreate, UserResponse, Token, LoginRequest,
     RoleCreate, RoleResponse, PermissionCheck
@@ -90,10 +91,13 @@ async def register_user(
 
     await db.commit()
 
-    # Reload user with roles
+    # Reload user with roles & cari
     stmt = (
         select(User)
-        .options(selectinload(User.user_roles).selectinload(UserRole.role))
+        .options(
+            selectinload(User.user_roles).selectinload(UserRole.role),
+            selectinload(User.cari)
+        )
         .where(User.id == user.id)
     )
     result = await db.scalar(stmt)
@@ -104,6 +108,8 @@ async def register_user(
         role=result.role,
         is_active=result.is_active,
         cari_id=result.cari_id,
+        cari_title=result.cari.title if result.cari else None,
+        cari_code=result.cari.code if result.cari else None,
         created_at=result.created_at,
         roles=[r.role_name for r in result.roles]
     )
@@ -115,24 +121,76 @@ async def login(
 ):
     """
     Authenticate user credentials and return a signed JWT Bearer access token.
+    Supports smart identity:
+    1. Direct email lookup
+    2. Department username alias (e.g. 'muhasebe', 'depo', 'satis', 'uretim', 'ik', 'admin')
+    3. Plain text Company Name / Cari Title / Code (for B2B customers)
     """
+    identity = payload.email.strip()
+
+    # 1. Direct match on user email
     stmt = (
         select(User)
-        .options(selectinload(User.user_roles).selectinload(UserRole.role))
-        .where(User.email == payload.email)
+        .options(
+            selectinload(User.user_roles).selectinload(UserRole.role),
+            selectinload(User.cari)
+        )
+        .where(func.lower(User.email) == identity.lower())
     )
     user = await db.scalar(stmt)
+
+    # 2. If not found and identity doesn't contain '@', test department alias
+    if not user and "@" not in identity:
+        dept_stmt = (
+            select(User)
+            .options(
+                selectinload(User.user_roles).selectinload(UserRole.role),
+                selectinload(User.cari)
+            )
+            .where(
+                or_(
+                    User.email.ilike(f"{identity}@%"),
+                    User.full_name.ilike(f"%{identity}%")
+                )
+            )
+        )
+        user = await db.scalar(dept_stmt)
+
+    # 3. If still not found and identity doesn't contain '@', test B2B Cari Company Name / Code
+    if not user and "@" not in identity:
+        cari_stmt = (
+            select(CariAccount)
+            .where(
+                or_(
+                    CariAccount.title.ilike(f"%{identity}%"),
+                    CariAccount.code.ilike(f"%{identity}%")
+                )
+            )
+        )
+        caris = (await db.scalars(cari_stmt)).all()
+        if caris:
+            cari_ids = [c.id for c in caris]
+            b2b_user_stmt = (
+                select(User)
+                .options(
+                    selectinload(User.user_roles).selectinload(UserRole.role),
+                    selectinload(User.cari)
+                )
+                .where(User.cari_id.in_(cari_ids))
+            )
+            user = await db.scalar(b2b_user_stmt)
+
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
+            detail="Hatalı kullanıcı adı, e-posta, firma unvanı veya şifre.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated. Contact factory administrator."
+            detail="Hesap pasif durumdadır. Lütfen fabrika yöneticisi ile iletişime geçiniz."
         )
 
     roles_list = [r.role_name for r in user.roles]
@@ -171,8 +229,89 @@ async def get_my_profile(
         role=current_user.role,
         is_active=current_user.is_active,
         cari_id=current_user.cari_id,
+        cari_title=current_user.cari.title if current_user.cari else None,
+        cari_code=current_user.cari.code if current_user.cari else None,
         created_at=current_user.created_at,
         roles=[r.role_name for r in current_user.roles]
+    )
+
+@router.get("/users", response_model=List[UserResponse])
+async def list_users(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List all system users with their roles, cari account link, and active status.
+    """
+    stmt = (
+        select(User)
+        .options(
+            selectinload(User.user_roles).selectinload(UserRole.role),
+            selectinload(User.cari)
+        )
+        .order_by(User.id.desc())
+    )
+    users = (await db.scalars(stmt)).all()
+    return [
+        UserResponse(
+            id=u.id,
+            email=u.email,
+            full_name=u.full_name,
+            role=u.role,
+            is_active=u.is_active,
+            cari_id=u.cari_id,
+            cari_title=u.cari.title if u.cari else None,
+            cari_code=u.cari.code if u.cari else None,
+            created_at=u.created_at,
+            roles=[r.role_name for r in u.roles]
+        )
+        for u in users
+    ]
+
+@router.patch("/users/{user_id}/status", response_model=UserResponse)
+async def toggle_user_status(
+    user_id: int,
+    is_active: Optional[bool] = Query(default=None),
+    current_user: User = Depends(require_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Toggle or update the active status of a user (ADMIN only).
+    """
+    stmt = (
+        select(User)
+        .options(
+            selectinload(User.user_roles).selectinload(UserRole.role),
+            selectinload(User.cari)
+        )
+        .where(User.id == user_id)
+    )
+    user = await db.scalar(stmt)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kullanıcı bulunamadı."
+        )
+
+    if is_active is not None:
+        user.is_active = is_active
+    else:
+        user.is_active = not user.is_active
+
+    await db.commit()
+    await db.refresh(user)
+
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+        is_active=user.is_active,
+        cari_id=user.cari_id,
+        cari_title=user.cari.title if user.cari else None,
+        cari_code=user.cari.code if user.cari else None,
+        created_at=user.created_at,
+        roles=[r.role_name for r in user.roles]
     )
 
 @router.post("/roles", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)

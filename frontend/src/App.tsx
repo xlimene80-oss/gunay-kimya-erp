@@ -32,6 +32,7 @@ import { EmployeeReports } from './views/EmployeeReports';
 import { HRInterviews } from './views/HRInterviews';
 import { PurchasingManagement } from './views/PurchasingManagement';
 import { ManualOrdersPlanning } from './views/ManualOrdersPlanning';
+import { UserManagement } from './views/UserManagement';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
@@ -71,6 +72,8 @@ const MainShell: React.FC = () => {
       setCurrentView('purchasing_requests');
     } else if (pathname === '/orders/planning' || viewParam === 'manual_orders_planning') {
       setCurrentView('manual_orders_planning');
+    } else if (pathname === '/admin/users' || viewParam === 'user_management') {
+      setCurrentView('user_management');
     } else if (viewParam) {
       setCurrentView(viewParam);
     }
@@ -88,21 +91,28 @@ const MainShell: React.FC = () => {
       return;
     }
 
-    if (user && user.roles && user.roles.length > 0) {
-      const roleStr = user.roles.map((r) => r.toLowerCase()).join(' ');
-
-      if (roleStr.includes('bayi') || roleStr.includes('b2b') || roleStr.includes('customer')) {
+    if (user) {
+      if (user.role === 'customer') {
         setCurrentView('b2b');
-      } else if (roleStr.includes('admin') || roleStr.includes('yönetici') || roleStr.includes('yonetici')) {
-        setCurrentView('factory_dashboard');
-      } else if (roleStr.includes('kalite')) {
-        setCurrentView('quality_pending');
-      } else if (roleStr.includes('depo')) {
-        setCurrentView('scanner');
-      } else if (roleStr.includes('muhasebe')) {
-        setCurrentView('dashboard');
-      } else {
-        setCurrentView('factory_dashboard');
+        return;
+      }
+
+      if (user.roles && user.roles.length > 0) {
+        const roleStr = user.roles.map((r) => r.toLowerCase()).join(' ');
+
+        if (roleStr.includes('bayi') || roleStr.includes('b2b') || roleStr.includes('customer')) {
+          setCurrentView('b2b');
+        } else if (roleStr.includes('admin') || roleStr.includes('yönetici') || roleStr.includes('yonetici')) {
+          setCurrentView('factory_dashboard');
+        } else if (roleStr.includes('kalite')) {
+          setCurrentView('quality_pending');
+        } else if (roleStr.includes('depo')) {
+          setCurrentView('scanner');
+        } else if (roleStr.includes('muhasebe')) {
+          setCurrentView('dashboard');
+        } else {
+          setCurrentView('factory_dashboard');
+        }
       }
     }
   }, [user]);
@@ -198,8 +208,9 @@ const MainShell: React.FC = () => {
             {/* 6. RAPORLAMA */}
             {currentView === 'reports_employee' && <EmployeeReports />}
 
-            {/* 7. İNSAN KAYNAKLARI */}
+            {/* 7. İNSAN KAYNAKLARI & KULLANICI YÖNETİMİ */}
             {currentView === 'hr_interviews' && <HRInterviews />}
+            {currentView === 'user_management' && <UserManagement />}
 
             {/* 8. KALİTE YÖNETİMİ */}
             {currentView === 'quality_pending' && <QualityPending onNavigate={setCurrentView} />}
