@@ -27,6 +27,8 @@ import {
   Award,
   Warehouse,
   GitFork,
+  Calendar,
+  FileText,
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -65,7 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const userRolesStr = userRoles.join(' ');
   const isAdmin = userRolesStr.includes('admin') || userRolesStr.includes('yönetici') || userRolesStr.includes('yonetici');
   const isDepo = userRolesStr.includes('depo');
-  const isBayi = userRolesStr.includes('bayi') || userRolesStr.includes('b2b');
+  const isBayi = userRolesStr.includes('bayi') || userRolesStr.includes('b2b') || userRolesStr.includes('customer');
   const isMuhasebe = userRolesStr.includes('muhasebe');
   const isKalite = userRolesStr.includes('kalite');
   const isUretim = userRolesStr.includes('uretim') || userRolesStr.includes('fabrika_muduru');
@@ -147,13 +149,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'procurement',
       title: 'SATIN ALMA',
       icon: Briefcase,
-      roles: ['admin', 'depo', 'muhasebe'],
+      roles: ['admin', 'depo', 'muhasebe', 'staff'],
       items: [
         {
           id: 'goods_receipt',
           label: 'Mal Kabul',
           icon: FileCheck2,
           roles: ['admin', 'depo', 'muhasebe']
+        },
+        {
+          id: 'purchasing_requests',
+          label: 'İç Satınalma Talepleri',
+          icon: Briefcase,
+          roles: ['admin', 'depo', 'muhasebe', 'staff']
         },
         {
           id: 'suppliers',
@@ -167,19 +175,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'sales_dispatch',
       title: 'SATIŞ & SEVKİYAT',
       icon: ShoppingCart,
-      roles: ['admin', 'bayi', 'depo', 'muhasebe'],
+      roles: ['admin', 'bayi', 'customer', 'b2b', 'depo', 'muhasebe', 'staff'],
       items: [
         {
+          id: 'b2b',
+          label: 'B2B Müşteri Portalı',
+          icon: Building2,
+          roles: ['admin', 'bayi', 'customer', 'b2b']
+        },
+        {
+          id: 'manual_orders_planning',
+          label: 'Manuel Sipariş & Planlama',
+          icon: Calendar,
+          roles: ['admin', 'muhasebe', 'depo', 'staff']
+        },
+        {
           id: 'orders',
-          label: 'Sipariş Giriş & B2B',
+          label: 'Sipariş Giriş & Katalog',
           icon: ShoppingBag,
-          roles: ['admin', 'bayi', 'muhasebe']
+          roles: ['admin', 'bayi', 'customer', 'muhasebe']
         },
         {
           id: 'customers',
-          label: 'Müşteriler',
+          label: 'Müşteriler & CRM',
           icon: Users,
-          roles: ['admin', 'bayi', 'muhasebe']
+          roles: ['admin', 'bayi', 'muhasebe', 'staff']
         },
         {
           id: 'logistics',
@@ -222,6 +242,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     },
     {
+      id: 'hr_management',
+      title: 'İNSAN KAYNAKLARI',
+      icon: Users,
+      roles: ['admin', 'staff', 'muhasebe'],
+      items: [
+        {
+          id: 'hr_interviews',
+          label: 'Mülakat & Aday Paneli',
+          icon: Users,
+          roles: ['admin', 'staff', 'muhasebe']
+        }
+      ]
+    },
+    {
+      id: 'employee_reports_group',
+      title: 'PERSONEL RAPORLAMA',
+      icon: FileText,
+      roles: ['admin', 'staff', 'uretim', 'depo', 'muhasebe'],
+      items: [
+        {
+          id: 'reports_employee',
+          label: 'Faaliyet & Saha Raporu',
+          icon: FileText,
+          roles: ['admin', 'staff', 'uretim', 'depo', 'muhasebe']
+        }
+      ]
+    },
+    {
       id: 'finance',
       title: 'FİNANSAL YÖNETİM',
       icon: Wallet,
@@ -245,6 +293,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       procurement: false,
       sales_dispatch: false,
       quality: false,
+      hr_management: false,
+      employee_reports_group: false,
       finance: false
     };
     for (const group of menuGroups) {

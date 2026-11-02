@@ -14,8 +14,10 @@ import {
   Phone,
   Mail,
   MapPin,
-  Calendar
+  Calendar,
+  MessageSquare
 } from 'lucide-react';
+import { CustomerCrmModal } from '../components/CustomerCrmModal';
 
 interface CustomerAccount {
   id: number;
@@ -44,6 +46,7 @@ export const CustomersManagement: React.FC = () => {
   // Drawer state
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [editingCustomer, setEditingCustomer] = useState<CustomerAccount | null>(null);
+  const [crmCustomer, setCrmCustomer] = useState<CustomerAccount | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -389,6 +392,14 @@ export const CustomersManagement: React.FC = () => {
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
+                          onClick={() => setCrmCustomer(cust)}
+                          className="border border-primary-border bg-primary-soft text-primary hover:bg-primary hover:text-white px-2.5 py-1.5 rounded-md text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
+                          title="CRM Görüşme / Ziyaret Notları"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>CRM</span>
+                        </button>
+                        <button
                           onClick={() => openEditDrawer(cust)}
                           className="border border-border hover:bg-primary-soft text-text hover:text-primary px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1"
                           title="Düzenle"
@@ -683,6 +694,12 @@ export const CustomersManagement: React.FC = () => {
           </div>
         </div>
       )}
+      {/* CRM Customer Profile & Notes Modal */}
+      <CustomerCrmModal
+        isOpen={!!crmCustomer}
+        onClose={() => setCrmCustomer(null)}
+        customer={crmCustomer}
+      />
     </div>
   );
 };

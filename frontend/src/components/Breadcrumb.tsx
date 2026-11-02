@@ -58,6 +58,21 @@ export const viewMetaMap: Record<string, NavMeta> = {
     item: 'Tedarikçiler',
     badge: 'Hammadde & Kimya',
   },
+  purchasing_requests: {
+    group: 'SATIN ALMA',
+    item: 'Satınalma & İç Talepler',
+    badge: 'Hammadde RFQ',
+  },
+  b2b: {
+    group: 'B2B MÜŞTERİ PORTALI',
+    item: 'Müşteri Paneli & Sipariş',
+    badge: 'Canlı B2B',
+  },
+  manual_orders_planning: {
+    group: 'SATIŞ & SEVKİYAT',
+    item: 'Manuel Sipariş & Planlama',
+    badge: 'Kanban Akışı',
+  },
   orders: {
     group: 'SATIŞ & SEVKİYAT',
     item: 'Sipariş Giriş & B2B',
@@ -65,7 +80,7 @@ export const viewMetaMap: Record<string, NavMeta> = {
   },
   customers: {
     group: 'SATIŞ & SEVKİYAT',
-    item: 'Müşteriler',
+    item: 'Müşteriler & CRM',
     badge: 'Cari Hesaplar',
   },
   tracking: {
@@ -77,6 +92,16 @@ export const viewMetaMap: Record<string, NavMeta> = {
     group: 'SATIŞ & SEVKİYAT',
     item: 'Sevkiyat & İrsaliye Takip',
     badge: 'Çeki & İrsaliye',
+  },
+  reports_employee: {
+    group: 'PERSONEL VE SATIŞ',
+    item: 'Faaliyet & Ziyaret Raporları',
+    badge: 'Günlük / Plasiyer',
+  },
+  hr_interviews: {
+    group: 'İNSAN KAYNAKLARI',
+    item: 'Aday Mülakat Yönetimi',
+    badge: 'İşe Alım',
   },
   dashboard: {
     group: 'FİNANSAL YÖNETİM',

@@ -27,6 +27,11 @@ import { PackagingStation } from './views/PackagingStation';
 import { QualityPending } from './views/QualityPending';
 import { QualityTemplates } from './views/QualityTemplates';
 import { QualityCoaList } from './views/QualityCoaList';
+import { B2BDashboard } from './views/B2BDashboard';
+import { EmployeeReports } from './views/EmployeeReports';
+import { HRInterviews } from './views/HRInterviews';
+import { PurchasingManagement } from './views/PurchasingManagement';
+import { ManualOrdersPlanning } from './views/ManualOrdersPlanning';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
@@ -56,6 +61,16 @@ const MainShell: React.FC = () => {
     const viewParam = searchParams.get('view');
     if (pathname === '/terminal' || viewParam === 'scanner' || viewParam === 'terminal') {
       setCurrentView('scanner');
+    } else if (pathname === '/b2b' || viewParam === 'b2b') {
+      setCurrentView('b2b');
+    } else if (pathname === '/reports/employee' || viewParam === 'reports_employee') {
+      setCurrentView('reports_employee');
+    } else if (pathname === '/hr/interviews' || viewParam === 'hr_interviews') {
+      setCurrentView('hr_interviews');
+    } else if (pathname === '/purchasing/requests' || viewParam === 'purchasing_requests') {
+      setCurrentView('purchasing_requests');
+    } else if (pathname === '/orders/planning' || viewParam === 'manual_orders_planning') {
+      setCurrentView('manual_orders_planning');
     } else if (viewParam) {
       setCurrentView(viewParam);
     }
@@ -68,16 +83,20 @@ const MainShell: React.FC = () => {
       setCurrentView('scanner');
       return;
     }
+    if (pathname === '/b2b') {
+      setCurrentView('b2b');
+      return;
+    }
 
     if (user && user.roles && user.roles.length > 0) {
       const roleStr = user.roles.map((r) => r.toLowerCase()).join(' ');
 
-      if (roleStr.includes('admin') || roleStr.includes('yönetici') || roleStr.includes('yonetici')) {
+      if (roleStr.includes('bayi') || roleStr.includes('b2b') || roleStr.includes('customer')) {
+        setCurrentView('b2b');
+      } else if (roleStr.includes('admin') || roleStr.includes('yönetici') || roleStr.includes('yonetici')) {
         setCurrentView('factory_dashboard');
       } else if (roleStr.includes('kalite')) {
         setCurrentView('quality_pending');
-      } else if (roleStr.includes('bayi') || roleStr.includes('b2b')) {
-        setCurrentView('orders');
       } else if (roleStr.includes('depo')) {
         setCurrentView('scanner');
       } else if (roleStr.includes('muhasebe')) {
@@ -88,13 +107,13 @@ const MainShell: React.FC = () => {
     }
   }, [user]);
 
-  // Security guard: If a B2B user tries to access 'dashboard', bounce to 'orders'
+  // Security guard: If a B2B user tries to access internal staff views, bounce to 'b2b'
   useEffect(() => {
     if (user && user.roles) {
       const roleStr = user.roles.map((r) => r.toLowerCase()).join(' ');
-      const isBayi = roleStr.includes('bayi') || roleStr.includes('b2b');
-      if (isBayi && currentView === 'dashboard') {
-        setCurrentView('orders');
+      const isBayi = roleStr.includes('bayi') || roleStr.includes('b2b') || roleStr.includes('customer');
+      if (isBayi && currentView !== 'b2b' && currentView !== 'orders') {
+        setCurrentView('b2b');
       }
     }
   }, [currentView, user]);
@@ -163,9 +182,12 @@ const MainShell: React.FC = () => {
             {/* 3. SATIN ALMA */}
             {currentView === 'goods_receipt' && <GoodsReceiptManagement />}
             {currentView === 'suppliers' && <SuppliersManagement />}
+            {currentView === 'purchasing_requests' && <PurchasingManagement />}
 
-            {/* 4. SATIŞ & SEVKİYAT */}
+            {/* 4. SATIŞ & SEVKİYAT & B2B */}
+            {currentView === 'b2b' && <B2BDashboard />}
             {currentView === 'orders' && <Orders />}
+            {currentView === 'manual_orders_planning' && <ManualOrdersPlanning />}
             {currentView === 'customers' && <CustomersManagement />}
             {currentView === 'tracking' && <SiparisVeSevkiyatTakip />}
             {currentView === 'logistics' && <Logistics />}
@@ -173,7 +195,13 @@ const MainShell: React.FC = () => {
             {/* 5. FİNANSAL YÖNETİM */}
             {currentView === 'dashboard' && <Dashboard />}
 
-            {/* 6. KALİTE YÖNETİMİ */}
+            {/* 6. RAPORLAMA */}
+            {currentView === 'reports_employee' && <EmployeeReports />}
+
+            {/* 7. İNSAN KAYNAKLARI */}
+            {currentView === 'hr_interviews' && <HRInterviews />}
+
+            {/* 8. KALİTE YÖNETİMİ */}
             {currentView === 'quality_pending' && <QualityPending onNavigate={setCurrentView} />}
             {currentView === 'quality_templates' && <QualityTemplates />}
             {currentView === 'quality_coas' && <QualityCoaList />}
