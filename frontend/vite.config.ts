@@ -122,7 +122,7 @@ export default defineConfig({
               url.pathname.endsWith('index.html'),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'html-cache',
+              cacheName: 'html-cache-v2.0',
             }
           },
           {
@@ -132,7 +132,7 @@ export default defineConfig({
               request.destination === 'worker',
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'assets-cache',
+              cacheName: 'assets-cache-v2.0',
             }
           },
           {
