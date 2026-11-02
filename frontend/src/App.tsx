@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import {
   Activity,
   FileCheck2,
-  PackageCheck,
   ScanBarcode,
   WifiOff,
-  ShieldAlert
+  ShieldAlert,
+  LayoutDashboard
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Login } from './views/Login';
+import { MainDashboard } from './views/MainDashboard';
 import { FactoryDashboard } from './views/FactoryDashboard';
 import { Dashboard } from './views/Dashboard';
 import { Orders } from './views/Orders';
@@ -40,42 +41,118 @@ import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 
 const MainShell: React.FC = () => {
   const { isAuthenticated, isLoading, user, hasPermission } = useAuth();
-  const [currentView, setCurrentView] = useState<string>('factory_dashboard');
+  // 1. Ana Panel is the default landing view on initial open/login
+  const [currentView, setCurrentView] = useState<string>('ana_panel');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
 
+  const userRoles = (user?.roles || []).map((r) => r.toLowerCase());
+  const userRolesStr = userRoles.join(' ');
+  const isAdmin =
+    user?.role === 'admin' ||
+    userRolesStr.includes('admin') ||
+    userRolesStr.includes('yönetici') ||
+    userRolesStr.includes('yonetici') ||
+    userRolesStr.includes('firma_sahibi') ||
+    userRolesStr.includes('sahip');
+
+  const isOperator =
+    (userRolesStr.includes('uretim') ||
+      userRolesStr.includes('operatör') ||
+      userRolesStr.includes('operator')) &&
+    !isAdmin;
+
+  const isMuhasebe = userRolesStr.includes('muhasebe') && !isAdmin;
+  const isBayi =
+    user?.role === 'customer' ||
+    userRolesStr.includes('bayi') ||
+    userRolesStr.includes('b2b') ||
+    userRolesStr.includes('customer');
+
+  // Permission Map across all views
   const viewPermissionMap: Record<string, string> = {
-    factory_dashboard: 'manufacturing',
-    bom_management: 'manufacturing',
-    packaging_station: 'manufacturing',
-    inventory_stock: 'inventory',
-    products_raw_materials: 'inventory',
-    products_sds_warning: 'inventory',
-    warehouse_layout: 'inventory',
-    pallet_box_center: 'inventory',
-    scanner: 'inventory',
-    goods_receipt: 'purchasing',
+    ana_panel: '',
+    main_dashboard: '',
+    // Satış & B2B
+    orders: 'orders',
+    b2b: 'b2b_orders',
+    customers: 'crm',
+    logistics: 'planning',
+    manual_orders_planning: 'planning',
+    tracking: 'b2b_tracking',
+    // Satın Alma
     suppliers: 'purchasing',
     purchasing_requests: 'purchasing',
-    manual_orders_planning: 'planning',
-    orders: 'orders',
-    customers: 'crm',
-    tracking: 'b2b_tracking',
-    logistics: 'planning',
-    dashboard: 'accounting',
-    reports_employee: 'crm',
-    hr_interviews: 'hr',
+    goods_receipt: 'purchasing',
+    // Stok & Depo
+    products_raw_materials: 'inventory',
+    products_sds_warning: 'inventory',
+    inventory_stock: 'inventory',
+    warehouse_layout: 'inventory',
+    scanner: 'inventory',
+    // Üretim
+    factory_dashboard: 'manufacturing',
+    bom_management: 'manufacturing',
+    pallet_box_center: 'manufacturing',
+    packaging_station: 'manufacturing',
+    traceability: 'quality',
     quality_pending: 'quality',
     quality_templates: 'quality',
     quality_coas: 'quality',
-    traceability: 'quality',
+    // Finans
+    fin_invoices: 'accounting',
+    fin_payments: 'accounting',
+    fin_accounts: 'accounting',
+    dashboard: 'accounting',
+    // İK
+    hr_interviews: 'hr',
+    hr_leave: 'hr',
+    hr_attendance: 'hr',
+    reports_employee: 'crm',
+    // Ayarlar
+    settings_users: 'users',
+    settings_permissions: 'users',
+    settings_system: 'users',
     user_management: 'users'
   };
 
   const isViewAllowed = () => {
+    if (isAdmin) return true;
+
+    // Strict Role Filtering
+    if (isBayi) {
+      return currentView === 'b2b' || currentView === 'orders' || currentView === 'tracking';
+    }
+
+    if (isOperator) {
+      return (
+        currentView === 'pallet_box_center' ||
+        currentView === 'factory_dashboard' ||
+        currentView === 'scanner' ||
+        currentView === 'packaging_station'
+      );
+    }
+
+    if (isMuhasebe) {
+      const allowedForMuhasebe = [
+        'ana_panel',
+        'main_dashboard',
+        'fin_invoices',
+        'fin_payments',
+        'fin_accounts',
+        'dashboard',
+        'orders',
+        'b2b',
+        'customers',
+        'logistics',
+        'manual_orders_planning'
+      ];
+      return allowedForMuhasebe.includes(currentView);
+    }
+
+    // Default permission checks
     const requiredPerm = viewPermissionMap[currentView];
     if (!requiredPerm) return true;
-    if (user?.role === 'admin' || user?.roles?.some((r) => r.toLowerCase().includes('admin'))) return true;
     if (currentView === 'b2b') {
       return hasPermission('b2b_orders') || hasPermission('b2b_tracking') || hasPermission('b2b_statement');
     }
@@ -115,7 +192,9 @@ const MainShell: React.FC = () => {
     } else if (pathname === '/orders/planning' || viewParam === 'manual_orders_planning') {
       setCurrentView('manual_orders_planning');
     } else if (pathname === '/admin/users' || viewParam === 'user_management') {
-      setCurrentView('user_management');
+      setCurrentView('settings_users');
+    } else if (pathname === '/finance' || viewParam === 'dashboard') {
+      setCurrentView('dashboard');
     } else if (viewParam) {
       setCurrentView(viewParam);
     }
@@ -127,72 +206,28 @@ const MainShell: React.FC = () => {
     const searchParams = new URLSearchParams(window.location.search);
     const viewParam = searchParams.get('view');
 
-    if (pathname === '/terminal' || viewParam === 'scanner' || viewParam === 'terminal') {
-      setCurrentView('scanner');
-      return;
-    }
-    if (pathname === '/b2b' || viewParam === 'b2b') {
-      setCurrentView('b2b');
-      return;
-    }
-    if (pathname === '/admin/users' || viewParam === 'user_management') {
-      setCurrentView('user_management');
-      return;
-    }
-    if (pathname === '/purchasing/requests' || viewParam === 'purchasing_requests') {
-      setCurrentView('purchasing_requests');
-      return;
-    }
-    if (pathname === '/hr/interviews' || viewParam === 'hr_interviews') {
-      setCurrentView('hr_interviews');
-      return;
-    }
-    if (pathname === '/orders/planning' || viewParam === 'manual_orders_planning') {
-      setCurrentView('manual_orders_planning');
-      return;
-    }
-    if (pathname === '/reports/employee' || viewParam === 'reports_employee') {
-      setCurrentView('reports_employee');
-      return;
-    }
-    if (viewParam) {
-      setCurrentView(viewParam);
-      return;
-    }
+    // Honor explicit URL deep-links
+    if (pathname !== '/' || viewParam) return;
 
     if (user) {
-      if (user.role === 'customer') {
+      if (user.role === 'customer' || isBayi) {
         setCurrentView('b2b');
-        return;
-      }
-
-      if (user.roles && user.roles.length > 0) {
-        const roleStr = user.roles.map((r) => r.toLowerCase()).join(' ');
-
-        if (roleStr.includes('bayi') || roleStr.includes('b2b') || roleStr.includes('customer')) {
-          setCurrentView('b2b');
-        } else if (roleStr.includes('admin') || roleStr.includes('yönetici') || roleStr.includes('yonetici')) {
-          setCurrentView('factory_dashboard');
-        } else if (roleStr.includes('kalite')) {
-          setCurrentView('quality_pending');
-        } else if (roleStr.includes('depo')) {
-          setCurrentView('scanner');
-        } else if (roleStr.includes('muhasebe')) {
-          setCurrentView('dashboard');
-        } else {
-          setCurrentView('factory_dashboard');
-        }
+      } else if (isOperator) {
+        setCurrentView('pallet_box_center');
+      } else {
+        // Admin, Muhasebe, and Staff: Default to 'Ana Panel' (1st heading)
+        setCurrentView('ana_panel');
       }
     }
   }, [user]);
 
-  // Security guard: If a B2B user tries to access internal staff views, bounce to 'b2b'
+  // Security guard: Prevent unauthorized cross-role view URL hijacking
   useEffect(() => {
-    if (user && user.roles) {
-      const roleStr = user.roles.map((r) => r.toLowerCase()).join(' ');
-      const isBayi = roleStr.includes('bayi') || roleStr.includes('b2b') || roleStr.includes('customer');
-      if (isBayi && currentView !== 'b2b' && currentView !== 'orders') {
+    if (user) {
+      if (isBayi && currentView !== 'b2b' && currentView !== 'orders' && currentView !== 'tracking') {
         setCurrentView('b2b');
+      } else if (isOperator && !['pallet_box_center', 'factory_dashboard', 'scanner', 'packaging_station'].includes(currentView)) {
+        setCurrentView('pallet_box_center');
       }
     }
   }, [currentView, user]);
@@ -256,7 +291,7 @@ const MainShell: React.FC = () => {
                 </p>
                 <div className="mt-5">
                   <button
-                    onClick={() => setCurrentView(user?.role === 'customer' ? 'b2b' : 'factory_dashboard')}
+                    onClick={() => setCurrentView(isBayi ? 'b2b' : 'ana_panel')}
                     className="px-5 py-2.5 bg-[#302480] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition"
                   >
                     Ana Ekrana Dön
@@ -265,49 +300,59 @@ const MainShell: React.FC = () => {
               </div>
             ) : (
               <>
-                {/* 1. ÜRETİM YÖNETİMİ */}
-                {currentView === 'factory_dashboard' && <FactoryDashboard onNavigate={setCurrentView} />}
-                {currentView === 'bom_management' && <BomManagement />}
-                {currentView === 'packaging_station' && <PackagingStation />}
+                {/* 1. ANA PANEL (3 BÜYÜK YÖNETİCİ KARTI) */}
+                {(currentView === 'ana_panel' || currentView === 'main_dashboard') && (
+                  <MainDashboard onNavigate={setCurrentView} />
+                )}
 
-                {/* 2. STOK & LOJİSTİK */}
-                {currentView === 'inventory_stock' && <StockManagement />}
-                {currentView === 'products_raw_materials' && <ProductsManagement />}
-                {currentView === 'products_sds_warning' && <ProductsManagement initialFilter="SDS_WARNING" />}
-                {currentView === 'warehouse_layout' && <WarehouseLayout />}
-                {currentView === 'pallet_box_center' && <BarcodeCenter />}
-                {currentView === 'scanner' && <TerminalScanner onNavigate={setCurrentView} />}
+                {/* 2. SATIŞ & B2B */}
+                {currentView === 'orders' && <Orders />}
+                {currentView === 'b2b' && <B2BDashboard />}
+                {currentView === 'customers' && <CustomersManagement />}
+                {currentView === 'logistics' && <Logistics />}
+                {currentView === 'manual_orders_planning' && <ManualOrdersPlanning />}
+                {currentView === 'tracking' && <SiparisVeSevkiyatTakip />}
 
                 {/* 3. SATIN ALMA */}
-                {currentView === 'goods_receipt' && <GoodsReceiptManagement />}
                 {currentView === 'suppliers' && <SuppliersManagement />}
                 {currentView === 'purchasing_requests' && <PurchasingManagement />}
+                {currentView === 'goods_receipt' && <GoodsReceiptManagement />}
 
-                {/* 4. SATIŞ & SEVKİYAT & B2B */}
-                {currentView === 'b2b' && <B2BDashboard />}
-                {currentView === 'orders' && <Orders />}
-                {currentView === 'manual_orders_planning' && <ManualOrdersPlanning />}
-                {currentView === 'customers' && <CustomersManagement />}
-                {currentView === 'tracking' && <SiparisVeSevkiyatTakip />}
-                {currentView === 'logistics' && <Logistics />}
+                {/* 4. STOK & DEPO */}
+                {currentView === 'products_raw_materials' && <ProductsManagement />}
+                {currentView === 'products_sds_warning' && <ProductsManagement initialFilter="SDS_WARNING" />}
+                {currentView === 'inventory_stock' && <StockManagement />}
+                {currentView === 'warehouse_layout' && <WarehouseLayout />}
+                {currentView === 'scanner' && <TerminalScanner onNavigate={setCurrentView} />}
 
-                {/* 5. FİNANSAL YÖNETİM */}
-                {currentView === 'dashboard' && <Dashboard />}
-
-                {/* 6. RAPORLAMA */}
-                {currentView === 'reports_employee' && <EmployeeReports />}
-
-                {/* 7. İNSAN KAYNAKLARI & KULLANICI YÖNETİMİ */}
-                {currentView === 'hr_interviews' && <HRInterviews />}
-                {currentView === 'user_management' && <UserManagement />}
-
-                {/* 8. KALİTE YÖNETİMİ */}
+                {/* 5. ÜRETİM */}
+                {currentView === 'factory_dashboard' && <FactoryDashboard onNavigate={setCurrentView} />}
+                {currentView === 'bom_management' && <BomManagement />}
+                {currentView === 'pallet_box_center' && <BarcodeCenter />}
+                {currentView === 'packaging_station' && <PackagingStation />}
+                {currentView === 'traceability' && <Traceability />}
                 {currentView === 'quality_pending' && <QualityPending onNavigate={setCurrentView} />}
                 {currentView === 'quality_templates' && <QualityTemplates />}
                 {currentView === 'quality_coas' && <QualityCoaList />}
 
-                {/* İZLENEBİLİRLİK (ŞECERE) */}
-                {currentView === 'traceability' && <Traceability />}
+                {/* 6. FİNANS */}
+                {(currentView === 'dashboard' ||
+                  currentView === 'fin_invoices' ||
+                  currentView === 'fin_payments' ||
+                  currentView === 'fin_reports') && <Dashboard />}
+                {currentView === 'fin_accounts' && <CustomersManagement />}
+
+                {/* 7. İNSAN KAYNAKLARI */}
+                {(currentView === 'hr_interviews' ||
+                  currentView === 'hr_leave' ||
+                  currentView === 'hr_attendance') && <HRInterviews />}
+                {currentView === 'reports_employee' && <EmployeeReports />}
+
+                {/* 8. AYARLAR */}
+                {(currentView === 'settings_users' ||
+                  currentView === 'settings_permissions' ||
+                  currentView === 'settings_system' ||
+                  currentView === 'user_management') && <UserManagement />}
               </>
             )}
           </main>
@@ -318,46 +363,52 @@ const MainShell: React.FC = () => {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around px-2 py-1 shadow-lg no-print">
         <button
           onClick={() => {
-            setCurrentView('factory_dashboard');
+            setCurrentView(isBayi ? 'b2b' : 'ana_panel');
             setIsMobileMenuOpen(false);
           }}
           className={`flex flex-col items-center justify-center min-h-[48px] min-w-[48px] flex-1 py-1 text-xs font-bold transition rounded-xl ${
-            currentView === 'factory_dashboard' ? 'text-primary bg-primary-soft/50' : 'text-text-muted hover:text-text'
+            currentView === 'ana_panel' || currentView === 'main_dashboard'
+              ? 'text-primary bg-primary-soft/50'
+              : 'text-text-muted hover:text-text'
           }`}
         >
-          <Activity className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight font-bold">Ana Sayfa</span>
+          <LayoutDashboard className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] leading-tight font-bold">Ana Panel</span>
         </button>
 
         <button
           onClick={() => {
-            setCurrentView('goods_receipt');
+            setCurrentView(isBayi ? 'orders' : 'goods_receipt');
             setIsMobileMenuOpen(false);
           }}
           className={`flex flex-col items-center justify-center min-h-[48px] min-w-[48px] flex-1 py-1 text-xs font-bold transition rounded-xl ${
-            currentView === 'goods_receipt' ? 'text-primary bg-primary-soft/50' : 'text-text-muted hover:text-text'
+            currentView === 'goods_receipt' || currentView === 'orders'
+              ? 'text-primary bg-primary-soft/50'
+              : 'text-text-muted hover:text-text'
           }`}
         >
           <FileCheck2 className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight font-bold">Mal Kabul</span>
+          <span className="text-[10px] leading-tight font-bold">{isBayi ? 'Siparişler' : 'Mal Kabul'}</span>
         </button>
 
         <button
           onClick={() => {
-            setCurrentView('packaging_station');
+            setCurrentView(isBayi ? 'b2b' : 'factory_dashboard');
             setIsMobileMenuOpen(false);
           }}
           className={`flex flex-col items-center justify-center min-h-[48px] min-w-[48px] flex-1 py-1 text-xs font-bold transition rounded-xl ${
-            currentView === 'packaging_station' ? 'text-primary bg-primary-soft/50' : 'text-text-muted hover:text-text'
+            currentView === 'factory_dashboard' || currentView === 'b2b'
+              ? 'text-primary bg-primary-soft/50'
+              : 'text-text-muted hover:text-text'
           }`}
         >
-          <PackageCheck className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight font-bold">Paketleme</span>
+          <Activity className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] leading-tight font-bold">{isBayi ? 'B2B Portal' : 'Üretim'}</span>
         </button>
 
         <button
           onClick={() => {
-            setCurrentView('scanner');
+            setCurrentView(isBayi ? 'orders' : 'scanner');
             setIsMobileMenuOpen(false);
           }}
           className={`flex flex-col items-center justify-center min-h-[48px] min-w-[48px] flex-1 py-1 text-xs font-bold transition rounded-xl ${

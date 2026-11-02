@@ -1,49 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import {
-  Factory,
-  Boxes,
-  ShoppingCart,
-  Wallet,
-  Activity,
-  FlaskConical,
-  Package,
-  Barcode,
-  ScanBarcode,
-  ShoppingBag,
-  Truck,
   LayoutDashboard,
+  ShoppingCart,
+  Briefcase,
+  Boxes,
+  Factory,
+  Wallet,
+  Users,
+  Settings,
   ChevronDown,
   LogOut,
   ShieldCheck,
+  Package,
   Layers,
-  Users,
-  Building2,
-  Briefcase,
-  FileCheck2,
-  PackageCheck,
-  ClipboardCheck,
-  FileSpreadsheet,
-  Award,
   Warehouse,
-  GitFork,
+  ScanBarcode,
+  Barcode,
+  FileCheck2,
+  Building2,
   Calendar,
+  ShoppingBag,
+  Truck,
+  ShieldAlert,
+  FlaskConical,
+  Activity,
   FileText,
+  UserCheck,
+  Sliders,
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-interface SubMenuItem {
+export interface SubMenuItem {
   id: string;
   label: string;
   icon: React.ElementType;
   roles?: string[];
 }
 
-interface MenuGroup {
+export interface MenuGroup {
   id: string;
   title: string;
   icon: React.ElementType;
+  isDirectLink?: boolean;
+  directViewId?: string;
   roles: string[];
   items: SubMenuItem[];
 }
@@ -61,380 +61,299 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile = false,
   onCloseMobile
 }) => {
-  const { user, logout, hasPermission } = useAuth();
+  const { user, logout } = useAuth();
 
   const userRoles = (user?.roles || []).map((r) => r.toLowerCase());
   const userRolesStr = userRoles.join(' ');
-  const isAdmin = userRolesStr.includes('admin') || userRolesStr.includes('yönetici') || userRolesStr.includes('yonetici');
-  const isDepo = userRolesStr.includes('depo');
-  const isBayi = userRolesStr.includes('bayi') || userRolesStr.includes('b2b') || userRolesStr.includes('customer');
-  const isMuhasebe = userRolesStr.includes('muhasebe');
-  const isKalite = userRolesStr.includes('kalite');
-  const isUretim = userRolesStr.includes('uretim') || userRolesStr.includes('fabrika_muduru');
+  const isAdmin =
+    user?.role === 'admin' ||
+    userRolesStr.includes('admin') ||
+    userRolesStr.includes('yönetici') ||
+    userRolesStr.includes('yonetici') ||
+    userRolesStr.includes('firma_sahibi') ||
+    userRolesStr.includes('sahip');
+
+  const isOperator =
+    (userRolesStr.includes('uretim') ||
+      userRolesStr.includes('operatör') ||
+      userRolesStr.includes('operator')) &&
+    !isAdmin;
+
+  const isMuhasebe = userRolesStr.includes('muhasebe') && !isAdmin;
+  const isBayi =
+    user?.role === 'customer' ||
+    userRolesStr.includes('bayi') ||
+    userRolesStr.includes('b2b') ||
+    userRolesStr.includes('customer');
 
   let panelSubtitle = 'B2B Bayi Portalı';
   if (isAdmin) panelSubtitle = 'Endüstriyel ERP Kontrol';
-  else if (isKalite) panelSubtitle = 'Kalite & Laboratuvar Portalı';
-  else if (isUretim) panelSubtitle = 'Üretim & Tesis Portalı';
-  else if (isDepo) panelSubtitle = 'Depo & Lojistik Portalı';
-  else if (isMuhasebe) panelSubtitle = 'Muhasebe & Finans Portalı';
+  else if (isOperator) panelSubtitle = 'Üretim Terminali';
+  else if (isMuhasebe) panelSubtitle = 'Muhasebe & Finans';
 
-  // 4 Process Accordion Groups (Max 2 Levels: Group -> SubItems)
+  // EXACT 8 HEADINGS IN EXACT SPECIFIED ORDER
   const menuGroups: MenuGroup[] = [
+    // 1. Ana Panel (Doğrudan ana sayfayı açar, alt menüsü yok)
     {
-      id: 'mfg',
-      title: 'ÜRETİM YÖNETİMİ',
-      icon: Factory,
-      roles: ['admin', 'bayi', 'uretim', 'fabrika_muduru'],
+      id: 'ana_panel_group',
+      title: 'Ana Panel',
+      icon: LayoutDashboard,
+      isDirectLink: true,
+      directViewId: 'ana_panel',
+      roles: ['admin', 'staff', 'muhasebe', 'depo', 'uretim', 'bayi'],
+      items: []
+    },
+    // 2. Satış & B2B
+    {
+      id: 'sales_b2b',
+      title: 'Satış & B2B',
+      icon: ShoppingCart,
+      roles: ['admin', 'muhasebe', 'staff', 'bayi', 'customer'],
       items: [
-        {
-          id: 'factory_dashboard',
-          label: 'Canlı Sipariş & Fazlar',
-          icon: Activity,
-          roles: ['admin', 'bayi']
-        },
-        {
-          id: 'bom_management',
-          label: 'Reçete (BOM) Yönetimi',
-          icon: FlaskConical,
-          roles: ['admin']
-        },
-        {
-          id: 'packaging_station',
-          label: 'Paketleme İstasyonu',
-          icon: PackageCheck,
-          roles: ['admin', 'uretim', 'fabrika_muduru']
-        }
+        { id: 'orders', label: 'Siparişler', icon: ShoppingBag, roles: ['admin', 'staff', 'muhasebe', 'bayi'] },
+        { id: 'b2b', label: 'B2B Bayi Siparişleri', icon: Building2, roles: ['admin', 'bayi', 'customer', 'staff', 'muhasebe'] },
+        { id: 'customers', label: 'Müşteriler', icon: Users, roles: ['admin', 'staff', 'muhasebe'] },
+        { id: 'logistics', label: 'Sevkiyat / İrsaliye', icon: Truck, roles: ['admin', 'staff', 'muhasebe', 'depo'] },
+        { id: 'manual_orders_planning', label: 'Fiyat Listeleri', icon: Calendar, roles: ['admin', 'staff', 'muhasebe'] }
       ]
     },
-    {
-      id: 'inventory_logistics',
-      title: 'STOK & LOJİSTİK',
-      icon: Boxes,
-      roles: ['admin', 'depo'],
-      items: [
-        {
-          id: 'inventory_stock',
-          label: 'Stok',
-          icon: Package,
-          roles: ['admin', 'depo']
-        },
-        {
-          id: 'products_raw_materials',
-          label: 'Ürünler & Hammaddeler',
-          icon: Layers,
-          roles: ['admin', 'depo']
-        },
-        {
-          id: 'warehouse_layout',
-          label: 'Depo Yerleşimi',
-          icon: Warehouse,
-          roles: ['admin', 'depo']
-        },
-        {
-          id: 'pallet_box_center',
-          label: 'Hazır Palet & Koli',
-          icon: Barcode,
-          roles: ['admin', 'depo']
-        },
-        {
-          id: 'scanner',
-          label: 'Depo Doğrulama',
-          icon: ScanBarcode,
-          roles: ['admin', 'depo']
-        }
-      ]
-    },
+    // 3. Satın Alma
     {
       id: 'procurement',
-      title: 'SATIN ALMA',
+      title: 'Satın Alma',
       icon: Briefcase,
-      roles: ['admin', 'depo', 'muhasebe', 'staff'],
+      roles: ['admin', 'staff', 'depo', 'muhasebe'],
       items: [
-        {
-          id: 'goods_receipt',
-          label: 'Mal Kabul',
-          icon: FileCheck2,
-          roles: ['admin', 'depo', 'muhasebe']
-        },
-        {
-          id: 'purchasing_requests',
-          label: 'İç Satınalma Talepleri',
-          icon: Briefcase,
-          roles: ['admin', 'depo', 'muhasebe', 'staff']
-        },
-        {
-          id: 'suppliers',
-          label: 'Tedarikçiler',
-          icon: Building2,
-          roles: ['admin', 'depo', 'muhasebe']
-        }
+        { id: 'suppliers', label: 'Tedarikçiler', icon: Building2, roles: ['admin', 'staff', 'depo', 'muhasebe'] },
+        { id: 'purchasing_requests', label: 'Satın Alma Siparişleri', icon: Briefcase, roles: ['admin', 'staff', 'depo', 'muhasebe'] },
+        { id: 'goods_receipt', label: 'Mal Kabul', icon: FileCheck2, roles: ['admin', 'depo', 'staff', 'muhasebe'] }
       ]
     },
+    // 4. Stok & Depo
     {
-      id: 'sales_dispatch',
-      title: 'SATIŞ & SEVKİYAT',
-      icon: ShoppingCart,
-      roles: ['admin', 'bayi', 'customer', 'b2b', 'depo', 'muhasebe', 'staff'],
+      id: 'inventory_warehouse',
+      title: 'Stok & Depo',
+      icon: Boxes,
+      roles: ['admin', 'depo', 'staff'],
       items: [
-        {
-          id: 'b2b',
-          label: 'B2B Müşteri Portalı',
-          icon: Building2,
-          roles: ['admin', 'bayi', 'customer', 'b2b']
-        },
-        {
-          id: 'manual_orders_planning',
-          label: 'Manuel Sipariş & Planlama',
-          icon: Calendar,
-          roles: ['admin', 'muhasebe', 'depo', 'staff']
-        },
-        {
-          id: 'orders',
-          label: 'Sipariş Giriş & Katalog',
-          icon: ShoppingBag,
-          roles: ['admin', 'bayi', 'customer', 'muhasebe']
-        },
-        {
-          id: 'customers',
-          label: 'Müşteriler & CRM',
-          icon: Users,
-          roles: ['admin', 'bayi', 'muhasebe', 'staff']
-        },
-        {
-          id: 'logistics',
-          label: 'Sevkiyat & İrsaliye Takip',
-          icon: Truck,
-          roles: ['admin', 'bayi', 'depo', 'muhasebe']
-        }
+        { id: 'products_raw_materials', label: 'Ürünler', icon: Layers, roles: ['admin', 'depo', 'staff'] },
+        { id: 'products_sds_warning', label: 'Hammaddeler', icon: FlaskConical, roles: ['admin', 'depo', 'staff'] },
+        { id: 'inventory_stock', label: 'Stok Durumu', icon: Package, roles: ['admin', 'depo', 'staff'] },
+        { id: 'warehouse_layout', label: 'Depo Hareketleri', icon: Warehouse, roles: ['admin', 'depo'] },
+        { id: 'scanner', label: 'Sayım', icon: ScanBarcode, roles: ['admin', 'depo'] }
       ]
     },
+    // 5. Üretim
     {
-      id: 'quality',
-      title: 'KALİTE & İZLENEBİLİRLİK',
-      icon: ShieldCheck,
-      roles: ['admin', 'kalite', 'uretim', 'depo', 'fabrika_muduru'],
+      id: 'manufacturing',
+      title: 'Üretim',
+      icon: Factory,
+      roles: ['admin', 'uretim', 'operator', 'fabrika_muduru', 'depo'],
       items: [
-        {
-          id: 'quality_pending',
-          label: 'Kalite Kontrol Bekleyenler',
-          icon: ClipboardCheck,
-          roles: ['admin', 'kalite', 'uretim', 'depo']
-        },
-        {
-          id: 'quality_templates',
-          label: 'Test Şablonları',
-          icon: FileSpreadsheet,
-          roles: ['admin', 'kalite']
-        },
-        {
-          id: 'quality_coas',
-          label: 'Analiz Sertifikaları',
-          icon: Award,
-          roles: ['admin', 'kalite', 'bayi', 'depo', 'uretim', 'muhasebe']
-        },
-        {
-          id: 'traceability',
-          label: 'İzlenebilirlik',
-          icon: GitFork,
-          roles: ['admin', 'kalite', 'uretim', 'depo', 'fabrika_muduru']
-        }
+        { id: 'factory_dashboard', label: 'Üretim Emirleri', icon: Activity, roles: ['admin', 'uretim', 'fabrika_muduru'] },
+        { id: 'bom_management', label: 'Reçeteler', icon: FlaskConical, roles: ['admin', 'fabrika_muduru'] },
+        { id: 'pallet_box_center', label: 'Koli / Palet Barkod', icon: Barcode, roles: ['admin', 'uretim', 'operator', 'depo', 'fabrika_muduru'] },
+        { id: 'traceability', label: 'Kalite & İzlenebilirlik', icon: ShieldAlert, roles: ['admin', 'uretim', 'fabrika_muduru'] }
       ]
     },
-    {
-      id: 'hr_management',
-      title: 'İNSAN KAYNAKLARI',
-      icon: Users,
-      roles: ['admin', 'staff', 'muhasebe'],
-      items: [
-        {
-          id: 'hr_interviews',
-          label: 'Mülakat & Aday Paneli',
-          icon: Users,
-          roles: ['admin', 'staff', 'muhasebe']
-        }
-      ]
-    },
-    {
-      id: 'employee_reports_group',
-      title: 'PERSONEL RAPORLAMA',
-      icon: FileText,
-      roles: ['admin', 'staff', 'uretim', 'depo', 'muhasebe'],
-      items: [
-        {
-          id: 'reports_employee',
-          label: 'Faaliyet & Saha Raporu',
-          icon: FileText,
-          roles: ['admin', 'staff', 'uretim', 'depo', 'muhasebe']
-        }
-      ]
-    },
+    // 6. Finans
     {
       id: 'finance',
-      title: 'FİNANSAL YÖNETİM',
+      title: 'Finans',
       icon: Wallet,
-      roles: ['admin', 'muhasebe'], // Strict rule: Hidden from B2B users!
+      roles: ['admin', 'muhasebe'],
       items: [
-        {
-          id: 'dashboard',
-          label: 'Finansal Genel Bakış',
-          icon: LayoutDashboard,
-          roles: ['admin', 'muhasebe']
-        }
+        { id: 'fin_invoices', label: 'Faturalar', icon: FileText, roles: ['admin', 'muhasebe'] },
+        { id: 'fin_payments', label: 'Tahsilat / Ödeme', icon: Wallet, roles: ['admin', 'muhasebe'] },
+        { id: 'fin_accounts', label: 'Cari Hesaplar', icon: Building2, roles: ['admin', 'muhasebe'] },
+        { id: 'dashboard', label: 'Raporlar', icon: LayoutDashboard, roles: ['admin', 'muhasebe'] }
       ]
     },
+    // 7. İnsan Kaynakları (Sadece Admin / Firma Sahibi)
     {
-      id: 'admin_management',
-      title: 'SİSTEM & YÖNETİM',
-      icon: ShieldCheck,
+      id: 'human_resources',
+      title: 'İnsan Kaynakları',
+      icon: Users,
       roles: ['admin'],
       items: [
-        {
-          id: 'user_management',
-          label: 'Kullanıcı & Yetkiler',
-          icon: Users,
-          roles: ['admin']
-        }
+        { id: 'hr_interviews', label: 'Personel', icon: Users, roles: ['admin'] },
+        { id: 'hr_leave', label: 'İzin', icon: Calendar, roles: ['admin'] },
+        { id: 'hr_attendance', label: 'Puantaj', icon: UserCheck, roles: ['admin'] },
+        { id: 'reports_employee', label: 'Personel Raporları', icon: FileText, roles: ['admin'] }
+      ]
+    },
+    // 8. Ayarlar (Sadece Admin / Firma Sahibi)
+    {
+      id: 'settings_group',
+      title: 'Ayarlar',
+      icon: Settings,
+      roles: ['admin'],
+      items: [
+        { id: 'settings_users', label: 'Kullanıcılar', icon: Users, roles: ['admin'] },
+        { id: 'settings_permissions', label: 'Yetkiler', icon: Sliders, roles: ['admin'] },
+        { id: 'settings_system', label: 'Sistem', icon: ShieldCheck, roles: ['admin'] }
       ]
     }
   ];
 
-  // Determine which group contains the currentView to ensure only that group is open by default
-  const getInitialOpenGroups = (activeView: string): Record<string, boolean> => {
-    const state: Record<string, boolean> = {
-      mfg: false,
-      inventory_logistics: false,
-      procurement: false,
-      sales_dispatch: false,
-      quality: false,
-      hr_management: false,
-      employee_reports_group: false,
-      finance: false,
-      admin_management: false
-    };
+  // Helper to find which group contains an active view ID
+  const findGroupIdForView = (viewId: string): string | null => {
+    if (viewId === 'ana_panel' || viewId === 'main_dashboard') return 'ana_panel_group';
+    // Mapping for Aliased Finance & Settings sub-items
+    if (viewId === 'fin_invoices' || viewId === 'fin_payments' || viewId === 'fin_accounts' || viewId === 'dashboard') {
+      return 'finance';
+    }
+    if (viewId === 'settings_users' || viewId === 'settings_permissions' || viewId === 'settings_system' || viewId === 'user_management') {
+      return 'settings_group';
+    }
+    if (viewId === 'hr_leave' || viewId === 'hr_attendance' || viewId === 'hr_interviews' || viewId === 'reports_employee') {
+      return 'human_resources';
+    }
+
     for (const group of menuGroups) {
-      if (group.items.some((it) => it.id === activeView)) {
-        state[group.id] = true;
-        break;
+      if (group.items.some((it) => it.id === viewId)) {
+        return group.id;
       }
     }
-    return state;
+    return null;
   };
 
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => getInitialOpenGroups(currentView));
-  const [pendingQcCount, setPendingQcCount] = useState<number>(0);
+  // SINGLE ACCORDION STATE: Exactly one group open at a time
+  const [openGroupId, setOpenGroupId] = useState<string | null>(() => findGroupIdForView(currentView));
 
+  // Sync open group automatically whenever currentView changes
   useEffect(() => {
-    axios
-      .get('/api/v1/quality/dashboard-metrics')
-      .then((res) => setPendingQcCount(res.data?.pending_count || 0))
-      .catch(() => {});
-  }, [currentView]);
-
-  useEffect(() => {
-    for (const group of menuGroups) {
-      if (group.items.some((it) => it.id === currentView)) {
-        setOpenGroups((prev) => ({
-          ...prev,
-          [group.id]: true
-        }));
-        break;
-      }
+    const matchedGroupId = findGroupIdForView(currentView);
+    if (matchedGroupId && matchedGroupId !== 'ana_panel_group') {
+      setOpenGroupId(matchedGroupId);
     }
   }, [currentView]);
 
   const toggleGroup = (groupId: string) => {
-    setOpenGroups((prev) => ({
-      ...prev,
-      [groupId]: !prev[groupId]
-    }));
+    // If clicking the currently open group, collapse it. Otherwise, close previous and open new.
+    setOpenGroupId((prev) => (prev === groupId ? null : groupId));
   };
 
-  const checkRoleAccess = (allowedRoles?: string[]) => {
-    if (isAdmin) return true;
-    if (!allowedRoles || allowedRoles.length === 0) return true;
-    return allowedRoles.some((r) => {
-      const lr = r.toLowerCase();
-      if (userRoles.includes(lr)) return true;
-      if (lr === 'bayi' && isBayi) return true;
-      if (lr === 'depo' && isDepo) return true;
-      if (lr === 'muhasebe' && isMuhasebe) return true;
-      if (lr === 'kalite' && isKalite) return true;
-      if ((lr === 'uretim' || lr === 'fabrika_muduru') && isUretim) return true;
-      return false;
+  // ZERO-TRUST ROLE BASED FILTERING RULES:
+  // 1. Admin/Firma Sahibi: Sees all 8 headings.
+  // 2. Üretim Operatörü: Sees ONLY 'Üretim' and within it ONLY 'Koli / Palet Barkod' (and/or Terminal).
+  // 3. Muhasebe: Sees ONLY 'Finans' and 'Satış & B2B' (plus Ana Panel).
+  // 4. İnsan Kaynakları ve Ayarlar: Rendered ONLY for admin / firma sahibi.
+  const filterGroupsByRole = (): MenuGroup[] => {
+    if (isAdmin) {
+      return menuGroups;
+    }
+
+    if (isOperator) {
+      // Üretim Operatörü: Sadece 'Üretim' başlığını ve 'Koli / Palet Barkod'u görür
+      return menuGroups
+        .filter((g) => g.id === 'manufacturing')
+        .map((g) => ({
+          ...g,
+          items: g.items.filter((it) => it.id === 'pallet_box_center')
+        }));
+    }
+
+    if (isMuhasebe) {
+      // Muhasebe: Sadece 'Finans' ve 'Satış & B2B'yi görür (+ Ana Panel)
+      return menuGroups.filter((g) => g.id === 'ana_panel_group' || g.id === 'finance' || g.id === 'sales_b2b');
+    }
+
+    if (isBayi) {
+      // B2B: Sadece Satış & B2B (Bayi Siparişleri)
+      return menuGroups
+        .filter((g) => g.id === 'sales_b2b')
+        .map((g) => ({
+          ...g,
+          items: g.items.filter((it) => it.id === 'b2b' || it.id === 'orders')
+        }));
+    }
+
+    // Default staff fallback: filter based on permissions
+    return menuGroups.filter((g) => {
+      if (g.id === 'human_resources' || g.id === 'settings_group') return false;
+      return true;
     });
   };
 
-  const itemPermissionMap: Record<string, string> = {
-    // Üretim
-    factory_dashboard: 'manufacturing',
-    bom_management: 'manufacturing',
-    packaging_station: 'manufacturing',
-    // Stok & Lojistik
-    inventory_stock: 'inventory',
-    products_raw_materials: 'inventory',
-    warehouse_layout: 'inventory',
-    pallet_box_center: 'inventory',
-    scanner: 'inventory',
-    // Satın Alma
-    goods_receipt: 'purchasing',
-    purchasing_requests: 'purchasing',
-    suppliers: 'purchasing',
-    // Satış & Sevkiyat
-    b2b: 'b2b_orders',
-    manual_orders_planning: 'planning',
-    orders: 'orders',
-    customers: 'crm',
-    logistics: 'planning',
-    // Kalite
-    quality_pending: 'quality',
-    quality_templates: 'quality',
-    quality_coas: 'quality',
-    traceability: 'quality',
-    // İK
-    hr_interviews: 'hr',
-    // Personel Raporlama
-    reports_employee: 'crm',
-    // Finans
-    dashboard: 'accounting',
-    // Sistem & Yönetim
-    user_management: 'users'
-  };
+  const visibleGroups = filterGroupsByRole();
 
-  const checkItemAccess = (item: SubMenuItem) => {
-    if (isAdmin) return true;
-    const requiredPerm = itemPermissionMap[item.id];
-    if (requiredPerm) {
-      if (item.id === 'b2b') {
-        if (!hasPermission('b2b_orders') && !hasPermission('b2b_tracking') && !hasPermission('b2b_statement')) {
-          return false;
-        }
-      } else if (item.id === 'orders') {
-        if (!hasPermission('orders') && !hasPermission('b2b_orders')) {
-          return false;
-        }
-      } else if (!hasPermission(requiredPerm)) {
-        return false;
-      }
+  // Vibrant Corporate Module Color Palettes
+  const groupColorMap: Record<
+    string,
+    { badgeBg: string; textColor: string; border: string; accentBorder: string }
+  > = {
+    ana_panel_group: {
+      badgeBg: 'bg-primary-soft',
+      textColor: 'text-primary',
+      border: 'border-primary-border',
+      accentBorder: 'border-l-primary'
+    },
+    sales_b2b: {
+      badgeBg: 'bg-mod-satis-soft',
+      textColor: 'text-mod-satis',
+      border: 'border-mod-satis-border',
+      accentBorder: 'border-l-blue-600'
+    },
+    procurement: {
+      badgeBg: 'bg-purple-500/10',
+      textColor: 'text-purple-600',
+      border: 'border-purple-500/20',
+      accentBorder: 'border-l-purple-600'
+    },
+    inventory_warehouse: {
+      badgeBg: 'bg-mod-stok-soft',
+      textColor: 'text-mod-stok',
+      border: 'border-mod-stok-border',
+      accentBorder: 'border-l-emerald-600'
+    },
+    manufacturing: {
+      badgeBg: 'bg-mod-uretim-soft',
+      textColor: 'text-mod-uretim',
+      border: 'border-mod-uretim-border',
+      accentBorder: 'border-l-amber-600'
+    },
+    finance: {
+      badgeBg: 'bg-mod-finans-soft',
+      textColor: 'text-mod-finans',
+      border: 'border-mod-finans-border',
+      accentBorder: 'border-l-violet-600'
+    },
+    human_resources: {
+      badgeBg: 'bg-rose-500/10',
+      textColor: 'text-rose-600',
+      border: 'border-rose-500/20',
+      accentBorder: 'border-l-rose-600'
+    },
+    settings_group: {
+      badgeBg: 'bg-slate-500/10',
+      textColor: 'text-slate-600',
+      border: 'border-slate-500/20',
+      accentBorder: 'border-l-slate-600'
     }
-    return checkRoleAccess(item.roles);
   };
 
-  // Filter groups and items based on role and dynamic ACL permissions
-  const visibleGroups = menuGroups
-    .filter((group) => {
-      // Finansal Yönetim: strictly hidden from B2B / Bayi!
-      if (isBayi && group.id === 'finance') return false;
-      return checkRoleAccess(group.roles);
-    })
-    .map((group) => {
-      const visibleItems = group.items.filter((item) => {
-        if (isBayi && group.id === 'finance') return false;
-        return checkItemAccess(item);
-      });
-      return { ...group, items: visibleItems };
-    })
-    .filter((group) => group.items.length > 0);
+  const isSubItemActive = (subId: string): boolean => {
+    if (currentView === subId) return true;
+    if (subId === 'fin_invoices' && currentView === 'fin_invoices') return true;
+    if (subId === 'fin_payments' && currentView === 'fin_payments') return true;
+    if (subId === 'fin_accounts' && (currentView === 'fin_accounts' || currentView === 'customers_finance')) return true;
+    if (subId === 'dashboard' && currentView === 'dashboard') return true;
+    if (subId === 'settings_users' && (currentView === 'settings_users' || currentView === 'user_management')) return true;
+    if (subId === 'settings_permissions' && currentView === 'settings_permissions') return true;
+    if (subId === 'settings_system' && currentView === 'settings_system') return true;
+    if (subId === 'hr_interviews' && currentView === 'hr_interviews') return true;
+    if (subId === 'hr_leave' && currentView === 'hr_leave') return true;
+    if (subId === 'hr_attendance' && currentView === 'hr_attendance') return true;
+    return false;
+  };
+
+  const isGroupActive = (group: MenuGroup): boolean => {
+    if (group.isDirectLink) {
+      return currentView === 'ana_panel' || currentView === 'main_dashboard';
+    }
+    return openGroupId === group.id || group.items.some((it) => isSubItemActive(it.id));
+  };
 
   return (
     <>
@@ -446,25 +365,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
+      {/* COMPACT SIDEBAR: Fits cleanly on screen without vertical scrollbars */}
       <aside
-        className={`fixed md:sticky top-0 bottom-0 left-0 z-50 md:z-10 w-72 md:w-64 bg-surface border-r border-border flex flex-col justify-between shrink-0 h-screen select-none transition-transform duration-300 ease-in-out ${
+        className={`fixed md:sticky top-0 bottom-0 left-0 z-50 md:z-10 w-64 bg-surface border-r border-border flex flex-col justify-between shrink-0 h-screen select-none transition-transform duration-300 ease-in-out ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {/* Top Section: Brand + Menu Navigation */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Brand Header */}
-          <div className="h-16 flex items-center justify-between px-5 md:px-6 border-b border-border bg-surface sticky top-0 z-10">
-            <div className="flex items-center gap-3">
+          <div className="h-14 flex items-center justify-between px-4 border-b border-border bg-surface shrink-0">
+            <div className="flex items-center gap-2.5">
               <img
                 src="/logo-mark.png"
                 alt="Günay Kimya Logo"
-                className="w-9 h-9 object-contain shrink-0"
+                className="w-8 h-8 object-contain shrink-0"
               />
-              <div>
-                <span className="font-extrabold text-text text-base tracking-tight leading-none block">
+              <div className="min-w-0">
+                <span className="font-extrabold text-text text-sm tracking-tight leading-none block truncate">
                   GÜNAY KİMYA
                 </span>
-                <span className="text-[10px] text-text-muted font-bold tracking-wider uppercase leading-none block mt-1">
+                <span className="text-[9px] text-text-muted font-bold tracking-wider uppercase leading-none block mt-1 truncate">
                   {panelSubtitle}
                 </span>
               </div>
@@ -473,154 +394,154 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Mobile Close Button */}
             <button
               onClick={onCloseMobile}
-              className="md:hidden p-2 rounded-xl text-text-muted hover:text-text hover:bg-bg transition"
+              className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text hover:bg-bg transition"
               aria-label="Menüyü Kapat"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-        {/* Process-Oriented Accordion Menu */}
-        <nav className="p-3 space-y-2">
-          {visibleGroups.map((group) => {
-            const GroupIcon = group.icon;
-            const isOpen = !!openGroups[group.id];
+          {/* EXACT 8-HEADING ACCORDION NAVIGATION */}
+          <nav className="flex-1 p-2 space-y-1 overflow-y-auto scrollbar-none">
+            {visibleGroups.map((group) => {
+              const GroupIcon = group.icon;
+              const isOpen = openGroupId === group.id;
+              const isActive = isGroupActive(group);
+              const colorConfig = groupColorMap[group.id] || groupColorMap.ana_panel_group;
 
-            const groupStyleMap: Record<string, { softBg: string; textColor: string; border: string }> = {
-              mfg: {
-                softBg: 'bg-mod-uretim-soft',
-                textColor: 'text-mod-uretim',
-                border: 'border-mod-uretim-border',
-              },
-              inventory_logistics: {
-                softBg: 'bg-mod-stok-soft',
-                textColor: 'text-mod-stok',
-                border: 'border-mod-stok-border',
-              },
-              procurement: {
-                softBg: 'bg-mod-stok-soft',
-                textColor: 'text-mod-stok',
-                border: 'border-mod-stok-border',
-              },
-              sales_dispatch: {
-                softBg: 'bg-mod-satis-soft',
-                textColor: 'text-mod-satis',
-                border: 'border-mod-satis-border',
-              },
-              quality: {
-                softBg: 'bg-amber-500/10',
-                textColor: 'text-amber-600',
-                border: 'border-amber-500/30',
-              },
-              finance: {
-                softBg: 'bg-mod-finans-soft',
-                textColor: 'text-mod-finans',
-                border: 'border-mod-finans-border',
-              },
-            };
+              // 1. Ana Panel (Direct Click - No Accordion Submenu)
+              if (group.isDirectLink) {
+                const isAnaPanelActive = currentView === 'ana_panel' || currentView === 'main_dashboard';
+                return (
+                  <button
+                    key={group.id}
+                    onClick={() => {
+                      setOpenGroupId(null);
+                      onNavigate('ana_panel');
+                      onCloseMobile?.();
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${
+                      isAnaPanelActive
+                        ? `${colorConfig.badgeBg} ${colorConfig.textColor} shadow-sm border border-primary/20`
+                        : 'text-text hover:bg-bg border border-transparent'
+                    }`}
+                  >
+                    <div
+                      className={`w-6 h-6 rounded-md ${colorConfig.badgeBg} ${colorConfig.textColor} flex items-center justify-center shrink-0 border ${colorConfig.border}`}
+                    >
+                      <GroupIcon className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="truncate tracking-wide">{group.title}</span>
+                  </button>
+                );
+              }
 
-            const style = groupStyleMap[group.id] || {
-              softBg: 'bg-primary-soft',
-              textColor: 'text-primary',
-              border: 'border-primary-border',
-            };
-
-            return (
-              <div key={group.id} className="rounded-xl border border-border bg-surface shadow-card overflow-hidden">
-                {/* Accordion Group Header */}
-                <button
-                  onClick={() => toggleGroup(group.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2 text-xs font-bold transition-all ${
-                    isOpen
-                      ? `${style.softBg} text-text`
-                      : 'bg-surface text-text hover:bg-bg'
+              // 2 - 8. Process Accordion Groups
+              return (
+                <div
+                  key={group.id}
+                  className={`rounded-lg border transition-colors overflow-hidden ${
+                    isOpen || isActive ? 'border-border/90 bg-surface' : 'border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5">
-                    {/* 32px rounded-corner box with module -soft bg and module icon color */}
-                    <div className={`w-8 h-8 rounded-lg ${style.softBg} ${style.textColor} flex items-center justify-center shrink-0 border ${style.border}`}>
-                      <GroupIcon className="w-4 h-4" />
-                    </div>
-                    <span className="tracking-wide uppercase text-[11px] text-text font-bold">{group.title}</span>
-                  </div>
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                      isOpen ? `transform rotate-180 ${style.textColor}` : 'text-text-muted'
+                  {/* Group Header Button */}
+                  <button
+                    onClick={() => toggleGroup(group.id)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-bold transition-all ${
+                      isOpen
+                        ? `${colorConfig.badgeBg} ${colorConfig.textColor}`
+                        : isActive
+                        ? 'bg-bg text-text'
+                        : 'text-text hover:bg-bg'
                     }`}
-                  />
-                </button>
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className={`w-6 h-6 rounded-md ${colorConfig.badgeBg} ${colorConfig.textColor} flex items-center justify-center shrink-0 border ${colorConfig.border}`}
+                      >
+                        <GroupIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="truncate tracking-wide">{group.title}</span>
+                    </div>
 
-                {/* Sub-Items (Level 2) */}
-                {isOpen && (
-                  <div className="p-1.5 space-y-1 bg-surface border-t border-border">
-                    {group.items.map((subItem) => {
-                      const SubIcon = subItem.icon;
-                      const isActive = currentView === subItem.id;
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${
+                        isOpen ? `transform rotate-180 ${colorConfig.textColor}` : 'text-text-muted'
+                      }`}
+                    />
+                  </button>
 
-                      return (
-                        <button
-                          key={subItem.id}
-                          onClick={() => {
-                            onNavigate(subItem.id);
-                            onCloseMobile?.();
-                          }}
-                          className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition-all ${
-                            isActive
-                              ? 'bg-primary-soft text-primary font-bold border-l-[3px] border-l-primary rounded-r-lg'
-                              : 'text-text hover:bg-bg hover:text-text border-l-[3px] border-l-transparent rounded-r-lg'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <SubIcon className={`w-4 h-4 shrink-0 ${isActive ? 'text-primary' : 'text-text-muted'}`} />
-                            <span className="truncate">{subItem.label}</span>
-                          </div>
-                          {subItem.id === 'quality_pending' && pendingQcCount > 0 && (
-                            <span className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white shrink-0">
-                              {pendingQcCount}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </nav>
-      </div>
+                  {/* Sub-Items (Indented, Compact Font, Left Colored Accent Bar) */}
+                  {isOpen && (
+                    <div className="py-1 px-1 bg-surface space-y-0.5 border-t border-border/50">
+                      {group.items.map((subItem) => {
+                        const SubIcon = subItem.icon;
+                        const isSubActive = isSubItemActive(subItem.id);
 
-      {/* User Card & Logout Footer */}
-      <div className="p-3 border-t border-border bg-surface">
-        <div className="bg-bg rounded-xl p-2.5 mb-2.5 border border-border">
-          <div className="flex items-center gap-2 text-xs font-semibold text-text truncate">
-            <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
-            <span className="truncate">{user?.full_name}</span>
-          </div>
-          <div className="text-[10px] text-text-muted truncate mt-0.5 font-mono">
-            {user?.email}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {user?.roles?.map((r) => (
-              <span
-                key={r}
-                className="text-[9px] bg-surface text-text px-1.5 py-0.5 rounded font-semibold border border-border font-mono"
-              >
-                {r}
-              </span>
-            ))}
-          </div>
+                        return (
+                          <button
+                            key={subItem.id}
+                            onClick={() => {
+                              onNavigate(subItem.id);
+                              onCloseMobile?.();
+                            }}
+                            className={`w-full flex items-center justify-between pl-6 pr-2 py-1 text-[11px] rounded-r-md transition-all text-left border-l-2 ${
+                              isSubActive
+                                ? `${colorConfig.accentBorder} ${colorConfig.badgeBg} ${colorConfig.textColor} font-bold`
+                                : 'border-l-transparent text-text-muted hover:text-text hover:bg-bg font-medium'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <SubIcon
+                                className={`w-3.5 h-3.5 shrink-0 ${
+                                  isSubActive ? colorConfig.textColor : 'text-text-muted'
+                                }`}
+                              />
+                              <span className="truncate">{subItem.label}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
         </div>
 
-        <button
-          onClick={logout}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-danger hover:bg-danger-soft border border-danger-border transition-colors"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          <span>Güvenli Çıkış</span>
-        </button>
-      </div>
-    </aside>
+        {/* Footer: User Profile & Zero-Trust Logout */}
+        <div className="p-2.5 border-t border-border bg-surface shrink-0">
+          <div className="bg-bg rounded-lg p-2 mb-2 border border-border">
+            <div className="flex items-center gap-2 text-xs font-semibold text-text truncate">
+              <ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span className="truncate text-[11px]">{user?.full_name || 'Kullanıcı'}</span>
+            </div>
+            <div className="text-[10px] text-text-muted truncate mt-0.5 font-mono">
+              {user?.email}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {user?.roles?.slice(0, 2).map((r) => (
+                <span
+                  key={r}
+                  className="text-[9px] bg-surface text-text px-1 py-0.5 rounded font-semibold border border-border font-mono uppercase"
+                >
+                  {r}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={logout}
+            className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-danger hover:bg-danger-soft border border-danger-border transition-colors active:scale-95"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Güvenli Çıkış</span>
+          </button>
+        </div>
+      </aside>
     </>
   );
 };
+export default Sidebar;
