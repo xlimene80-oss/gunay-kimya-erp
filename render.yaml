@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
 services:
   # -------------------------------------------------------------
   # 1. Backend API Service (FastAPI / Python Web Service)
@@ -6,25 +7,34 @@ services:
     name: gunay-kimya-api
     runtime: python
     plan: free
+    region: frankfurt
+    branch: feat(erp-expansion)
     buildCommand: pip install -r requirements.txt && python -m compileall app
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
+    autoDeploy: true
     envVars:
-      # Neon PostgreSQL bağlantı dizesi (Render Dashboard'da elle girilir)
+      # Neon PostgreSQL veritabanı bağlantısı (Render Dashboard'dan girilir)
       - key: DATABASE_URL
         sync: false
-      # JWT token imzalama gizli anahtarı (Render otomatik 64-karakter üretir)
+      # JWT token imzalama gizli anahtarları (Render otomatik 64-karakter üretir)
+      - key: JWT_SECRET
+        generateValue: true
       - key: SECRET_KEY
         generateValue: true
       # admin@gunaykimya.com için ilk açılış seed şifresi
       - key: ADMIN_PASSWORD
         sync: false
-      # CORS izinli frontend kök URL'si (Statik çevre değişkeni, cross-service referansı içermez)
+      # CORS ve Siber Güvenlik İzinli Domainler
       - key: FRONTEND_URL
         value: https://gunay-kimya-web.onrender.com
-      # Python runtime versiyonu
+      - key: ALLOWED_HOSTS
+        value: gunay-kimya-api.onrender.com,gunay-kimya-web.onrender.com
+      # Runtime ortam ayarları
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: TESTING
+        value: "0"
 
   # -------------------------------------------------------------
   # 2. Frontend Web Application (React / Vite Static Site)
@@ -32,11 +42,13 @@ services:
   - type: web
     name: gunay-kimya-web
     runtime: static
+    branch: feat(erp-expansion)
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
+    autoDeploy: true
     envVars:
-      # Backend API REST kök URL'si (Statik çevre değişkeni, cross-service referansı içermez)
+      # Backend API REST kök URL'si
       - key: VITE_API_URL
         value: https://gunay-kimya-api.onrender.com
     routes:

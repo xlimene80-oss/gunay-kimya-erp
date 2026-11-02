@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Gunay Kimya ERP Backend"
     API_V1_STR: str = "/api/v1"
-    PORT: int = int(os.getenv("PORT", "8000"))
+    PORT: int = int(os.getenv("PORT")) if os.getenv("PORT", "").isdigit() else 8000
     FRONTEND_URL: Optional[str] = os.getenv("FRONTEND_URL", None)
     
     # PostgreSQL (Render / Neon compatible) connection URI or fallback to local SQLite
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     )
 
     # JWT / Security Settings
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key-change-in-production")
+    SECRET_KEY: str = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "Admin123!")
