@@ -8,6 +8,11 @@ from app.routers.notifications import router as notifications_router
 from app.routers.quality import router as quality_router
 from app.routers.hazmat import router as hazmat_router
 from app.routers.production_router import router as production_router
+from app.routers.orders import router as orders_router
+from app.routers.crm import router as crm_router
+from app.routers.purchasing import router as purchasing_router
+from app.routers.hr import router as hr_router
+from app.routers.reports import router as reports_router
 
 api_router = APIRouter()
 
@@ -21,3 +26,10 @@ api_router.include_router(accounting_router)
 api_router.include_router(notifications_router)
 api_router.include_router(quality_router)
 api_router.include_router(hazmat_router)
+
+# Register new enterprise ERP expansion routers
+api_router.include_router(orders_router)
+api_router.include_router(crm_router)
+api_router.include_router(purchasing_router)
+api_router.include_router(hr_router)
+api_router.include_router(reports_router)

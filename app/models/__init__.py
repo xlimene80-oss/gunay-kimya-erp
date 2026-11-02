@@ -22,7 +22,7 @@ class TimestampMixin:
 
 # 0. User Authentication & RBAC Models
 from app.models.auth import (
-    User, Role, UserRole, ModulePermission
+    User, Role, UserRole, ModulePermission, UserRoleEnum, UserType
 )
 
 # 1. Automated Notifications & Event Logs
@@ -68,4 +68,29 @@ from app.models.quality import (
     QualityTestTemplate, QualityTestItem,
     QualityInspection, QualityInspectionResult,
     QualityCertificateOfAnalysis
+)
+
+# 7. CRM & Customer Interactions
+from app.models.crm import (
+    CariNote
+)
+
+# 8. Sales Orders & B2B Dispatch Planning
+from app.models.orders import (
+    Order, Planning
+)
+
+# 9. Procurement & Internal Purchase Requisitions
+from app.models.purchasing import (
+    PurchaseRequest
+)
+
+# 10. Human Resources & Talent Acquisition
+from app.models.hr import (
+    HRInterview, InterviewStatus
+)
+
+# 11. Staff & Sales Reporting
+from app.models.reports import (
+    EmployeeReport
 )

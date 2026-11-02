@@ -33,23 +33,29 @@ class RoleResponse(RoleBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+from app.models.auth import UserRoleEnum
+
 # ---------------------------------------------------------
 # User Schemas
 # ---------------------------------------------------------
 class UserBase(BaseModel):
     email: str = Field(..., max_length=120, description="User login email")
     full_name: str = Field(..., max_length=150, description="Employee full name")
+    role: UserRoleEnum = Field(default=UserRoleEnum.STAFF, description="admin, staff, customer")
     is_active: bool = Field(default=True)
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6, description="Plaintext password to hash")
     role_names: List[str] = Field(default=["DEPO_SORUMLUSU"], description="Assigned role names e.g. ADMIN, MUHASEBE")
+    cari_id: Optional[int] = Field(default=None, description="B2B müşteri kullanıcısı ise zorunlu olan CariAccount ID")
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
+    role: Optional[UserRoleEnum] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
     role_names: Optional[List[str]] = None
+    cari_id: Optional[int] = None
 
 class UserRoleSummary(BaseModel):
     id: int
@@ -74,12 +80,14 @@ class Token(BaseModel):
     expires_in_minutes: int
     roles: List[str] = []
     cari_id: Optional[int] = None
+    user_role: Optional[str] = None
 
 class TokenData(BaseModel):
     user_id: Optional[int] = None
     email: Optional[str] = None
     roles: List[str] = []
     cari_id: Optional[int] = None
+    user_role: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str

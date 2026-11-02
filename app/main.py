@@ -47,7 +47,7 @@ async def ensure_admin_user():
     from sqlalchemy import select
     from app.core.config import async_session_factory, settings
     from app.core.security import get_password_hash
-    from app.models.auth import User, Role, UserRole
+    from app.models.auth import User, Role, UserRole, UserRoleEnum
 
     target_email = "admin@gunaykimya.com"
     admin_password = os.getenv("ADMIN_PASSWORD") or settings.ADMIN_PASSWORD or "Admin123!"
@@ -58,6 +58,9 @@ async def ensure_admin_user():
         user = res.scalar_one_or_none()
 
         if user:
+            if user.role != UserRoleEnum.ADMIN:
+                user.role = UserRoleEnum.ADMIN
+                await session.commit()
             print(f"[STARTUP INFO] Admin kullanıcısı '{target_email}' veritabanında mevcut.")
             return
 
@@ -78,6 +81,7 @@ async def ensure_admin_user():
             email=target_email,
             full_name="Kemal Günay (Sistem Yöneticisi)",
             hashed_password=get_password_hash(admin_password),
+            role=UserRoleEnum.ADMIN,
             is_active=True
         )
         session.add(new_admin)

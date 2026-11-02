@@ -66,8 +66,20 @@ async def run_all_migrations():
                 ("total_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
             ]
 
+            # 6. Columns for auth_users (Role management & B2B segregation)
+            user_cols = [
+                ("role", "VARCHAR(30) DEFAULT 'staff'", "VARCHAR(30) DEFAULT 'staff'"),
+            ]
+
             if is_sqlite:
                 # SQLite PRAGMA check
+                res_users = await conn.execute(text("PRAGMA table_info(auth_users)"))
+                existing_user_cols = [r[1] for r in res_users.fetchall()]
+                for col_name, _, sqlite_def in user_cols:
+                    if col_name not in existing_user_cols:
+                        await conn.execute(text(f"ALTER TABLE auth_users ADD COLUMN {col_name} {sqlite_def}"))
+                        print(f"[MIGRATION SUCCESS] Added column 'auth_users.{col_name}' (SQLite).")
+
                 res_items = await conn.execute(text("PRAGMA table_info(inventory_items)"))
                 existing_item_cols = [r[1] for r in res_items.fetchall()]
                 for col_name, _, sqlite_def in item_cols:
@@ -97,6 +109,12 @@ async def run_all_migrations():
                         print(f"[MIGRATION SUCCESS] Added column 'mfg_production_ingredient_consumptions.{col_name}' (SQLite).")
             else:
                 # PostgreSQL safe ADD COLUMN IF NOT EXISTS
+                for col_name, pg_def, _ in user_cols:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS {col_name} {pg_def}"))
+                    except Exception as col_err:
+                        logger.warning(f"[MIGRATION NOTICE] auth_users.{col_name}: {col_err}")
+
                 for col_name, pg_def, _ in item_cols:
                     try:
                         await conn.execute(text(f"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS {col_name} {pg_def}"))

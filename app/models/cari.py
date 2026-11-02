@@ -88,6 +88,21 @@ class CariAccount(Base, TimestampMixin):
         foreign_keys="[CheckBond.cari_id]",
         back_populates="cari"
     )
+    users: Mapped[List["User"]] = relationship(
+        "User",
+        foreign_keys="[User.cari_id]",
+        back_populates="cari"
+    )
+    crm_notes: Mapped[List["CariNote"]] = relationship(
+        "CariNote",
+        back_populates="cari",
+        cascade="all, delete-orphan"
+    )
+    orders: Mapped[List["Order"]] = relationship(
+        "Order",
+        back_populates="cari",
+        cascade="all, delete-orphan"
+    )
 
 class CheckBond(Base, TimestampMixin):
     """Maturity and risk monitoring for Checks and Promissory Notes (Çek/Senet)."""

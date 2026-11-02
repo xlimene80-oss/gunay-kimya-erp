@@ -1,15 +1,24 @@
+import enum
 import datetime
 from typing import Optional, List
 from sqlalchemy import (
     String, Text, Boolean, Integer, ForeignKey, 
-    DateTime, func, UniqueConstraint
+    DateTime, func, UniqueConstraint, Enum as SQLEnum
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models import Base, TimestampMixin
 
+class UserRoleEnum(str, enum.Enum):
+    ADMIN = "admin"
+    STAFF = "staff"       # Şirket çalışanları / Operatörler
+    CUSTOMER = "customer" # B2B Müşterileri (cari_id zorunlu)
+
+# Kullanım kolaylığı için alternatif alias
+UserType = UserRoleEnum
+
 class User(Base, TimestampMixin):
     """
-    System user master account for ERP operators, managers, and accountants.
+    System user master account for ERP operators, managers, accountants, and B2B customers.
     """
     __tablename__ = "auth_users"
 
@@ -17,11 +26,17 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    role: Mapped[UserRoleEnum] = mapped_column(
+        SQLEnum(UserRoleEnum, values_callable=lambda x: [e.value for e in x], name="user_role_enum", native_enum=False),
+        default=UserRoleEnum.STAFF,
+        nullable=False,
+        server_default="staff"
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     cari_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cari_accounts.id", ondelete="SET NULL"), index=True, nullable=True)
 
     # Relationships
-    cari: Mapped[Optional["CariAccount"]] = relationship("CariAccount", foreign_keys=[cari_id], lazy="selectin")
+    cari: Mapped[Optional["CariAccount"]] = relationship("CariAccount", foreign_keys=[cari_id], lazy="selectin", back_populates="users")
     user_roles: Mapped[List["UserRole"]] = relationship(
         "UserRole", 
         back_populates="user", 

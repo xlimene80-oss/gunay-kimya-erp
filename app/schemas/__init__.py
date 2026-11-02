@@ -45,3 +45,29 @@ from app.schemas.cari import (
     RiskLimitResponse,
     CheckBondBase, CheckBondCreate, CheckBondUpdate, CheckBondResponse
 )
+
+# CRM & Cari Notes
+from app.schemas.crm import (
+    CariNoteBase, CariNoteCreate, CariNoteResponse
+)
+
+# Orders & Planning
+from app.schemas.orders import (
+    PlanningBase, PlanningCreate, PlanningUpdate, PlanningResponse,
+    OrderBase, OrderCreate, OrderB2BCreate, OrderUpdate, OrderResponse
+)
+
+# Purchasing
+from app.schemas.purchasing import (
+    PurchaseRequestBase, PurchaseRequestCreate, PurchaseRequestUpdate, PurchaseRequestResponse
+)
+
+# Human Resources
+from app.schemas.hr import (
+    HRInterviewBase, HRInterviewCreate, HRInterviewUpdate, HRInterviewResponse
+)
+
+# Employee Reporting
+from app.schemas.reports import (
+    EmployeeReportBase, EmployeeReportCreate, EmployeeReportResponse
+)

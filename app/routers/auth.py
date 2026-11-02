@@ -10,7 +10,7 @@ from app.core.security import (
     verify_password, get_password_hash, create_access_token,
     get_current_user, require_admin_user, check_module_permission
 )
-from app.models.auth import User, Role, UserRole, ModulePermission
+from app.models.auth import User, Role, UserRole, ModulePermission, UserRoleEnum
 from app.schemas.auth import (
     UserCreate, UserResponse, Token, LoginRequest,
     RoleCreate, RoleResponse, PermissionCheck
@@ -44,12 +44,21 @@ async def register_user(
     # First user automatically gets ADMIN if none exists
     effective_roles = payload.role_names if total_users > 0 else ["ADMIN"]
 
+    # Customer role requires valid cari_id
+    if payload.role == UserRoleEnum.CUSTOMER and not payload.cari_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="B2B Müşteri (CUSTOMER) rolündeki kullanıcılar için 'cari_id' (Cari Kart) zorunludur."
+        )
+
     hashed_pwd = get_password_hash(payload.password)
     user = User(
         email=payload.email,
         hashed_password=hashed_pwd,
         full_name=payload.full_name,
-        is_active=payload.is_active
+        role=payload.role,
+        is_active=payload.is_active,
+        cari_id=payload.cari_id
     )
     db.add(user)
     await db.flush()
@@ -92,7 +101,9 @@ async def register_user(
         id=result.id,
         email=result.email,
         full_name=result.full_name,
+        role=result.role,
         is_active=result.is_active,
+        cari_id=result.cari_id,
         created_at=result.created_at,
         roles=[r.role_name for r in result.roles]
     )
@@ -127,7 +138,13 @@ async def login(
     roles_list = [r.role_name for r in user.roles]
     expires = datetime.timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     token = create_access_token(
-        data={"sub": user.email, "user_id": user.id, "roles": roles_list, "cari_id": user.cari_id},
+        data={
+            "sub": user.email,
+            "user_id": user.id,
+            "roles": roles_list,
+            "cari_id": user.cari_id,
+            "user_role": user.role.value
+        },
         expires_delta=expires
     )
 
@@ -136,7 +153,8 @@ async def login(
         token_type="bearer",
         expires_in_minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES,
         roles=roles_list,
-        cari_id=user.cari_id
+        cari_id=user.cari_id,
+        user_role=user.role.value
     )
 
 @router.get("/me", response_model=UserResponse)
@@ -150,6 +168,7 @@ async def get_my_profile(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
+        role=current_user.role,
         is_active=current_user.is_active,
         cari_id=current_user.cari_id,
         created_at=current_user.created_at,

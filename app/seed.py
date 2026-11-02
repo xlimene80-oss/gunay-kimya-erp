@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.core.config import engine, async_session_factory
 from app.core.security import get_password_hash
 from app.models import Base
-from app.models.auth import User, Role, UserRole, ModulePermission
+from app.models.auth import User, Role, UserRole, ModulePermission, UserRoleEnum
 from app.models.accounting import Company, FiscalPeriod, PeriodStatus, Account, AccountType
 from app.models.cari import CariAccount, CariGroup, CariType, RiskStatus
 from app.models.inventory import (
@@ -75,11 +75,13 @@ async def seed_master_data():
             stmt = select(User).where(User.email == email)
             res = await session.execute(stmt)
             user = res.scalar_one_or_none()
+            assigned_role = UserRoleEnum.ADMIN if r_name == "ADMIN" else (UserRoleEnum.CUSTOMER if r_name == "BAYI" else UserRoleEnum.STAFF)
             if not user:
                 user = User(
                     email=email,
                     hashed_password=get_password_hash(pwd),
                     full_name=name,
+                    role=assigned_role,
                     is_active=True,
                 )
                 session.add(user)
@@ -88,6 +90,7 @@ async def seed_master_data():
                 session.add(ur)
             else:
                 user.hashed_password = get_password_hash(pwd)
+                user.role = assigned_role
                 user.is_active = True
 
         print("[4/6] Seeding company and accounting periods...")
@@ -348,6 +351,15 @@ async def seed_master_data():
                 c_obj.is_active = True
             if cdata["code"] == "120.01.0001":
                 dealer_cari = c_obj
+
+        # Link B2B customer user (bayi@egekimya.com) to Ege Endüstriyel Kimya CariAccount
+        if dealer_cari:
+            bayi_stmt = select(User).where(User.email == "bayi@egekimya.com")
+            bayi_res = await session.execute(bayi_stmt)
+            bayi_user = bayi_res.scalar_one_or_none()
+            if bayi_user:
+                bayi_user.cari_id = dealer_cari.id
+                bayi_user.role = UserRoleEnum.CUSTOMER
 
         # 4 Realistic Turkish Chemical Suppliers
         import json
