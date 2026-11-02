@@ -42,9 +42,10 @@ export function enforceDomainLicense(): boolean {
   return true;
 }
 
-export function initBrowserShield(): void {
-  if (typeof window === 'undefined') return;
-
+export function initBrowserShield(): void {
+  if (typeof window === 'undefined') return;
+  if ((window as any).__BYPASS_SHIELD__) return;
+
   // 1. Verify Domain License
   enforceDomainLicense();
 

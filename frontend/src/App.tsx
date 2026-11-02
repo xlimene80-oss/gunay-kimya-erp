@@ -124,12 +124,39 @@ const MainShell: React.FC = () => {
   // Role-based initial panel routing on login
   useEffect(() => {
     const pathname = window.location.pathname;
-    if (pathname === '/terminal') {
+    const searchParams = new URLSearchParams(window.location.search);
+    const viewParam = searchParams.get('view');
+
+    if (pathname === '/terminal' || viewParam === 'scanner' || viewParam === 'terminal') {
       setCurrentView('scanner');
       return;
     }
-    if (pathname === '/b2b') {
+    if (pathname === '/b2b' || viewParam === 'b2b') {
       setCurrentView('b2b');
+      return;
+    }
+    if (pathname === '/admin/users' || viewParam === 'user_management') {
+      setCurrentView('user_management');
+      return;
+    }
+    if (pathname === '/purchasing/requests' || viewParam === 'purchasing_requests') {
+      setCurrentView('purchasing_requests');
+      return;
+    }
+    if (pathname === '/hr/interviews' || viewParam === 'hr_interviews') {
+      setCurrentView('hr_interviews');
+      return;
+    }
+    if (pathname === '/orders/planning' || viewParam === 'manual_orders_planning') {
+      setCurrentView('manual_orders_planning');
+      return;
+    }
+    if (pathname === '/reports/employee' || viewParam === 'reports_employee') {
+      setCurrentView('reports_employee');
+      return;
+    }
+    if (viewParam) {
+      setCurrentView(viewParam);
       return;
     }
 
