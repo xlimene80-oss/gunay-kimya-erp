@@ -5,23 +5,32 @@ import {
   Search,
   Plus,
   RefreshCw,
-  Power,
   CheckCircle2,
   AlertTriangle,
   X,
-  Filter,
-  Shield,
   Building2,
   Globe,
-  Briefcase,
   KeyRound,
-  Mail,
-  UserCheck,
-  UserX,
   Check,
   Sliders,
-  ShieldCheck
+  ShieldCheck,
+  Edit2,
+  Trash2,
+  Shield,
+  Info
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+
+interface DepartmentRecord {
+  id: number;
+  name: string;
+  code: string;
+  description?: string;
+  is_active: boolean;
+  user_count: number;
+  permissions?: Record<string, Record<string, boolean>>;
+  created_at: string;
+}
 
 interface UserRecord {
   id: number;
@@ -29,13 +38,16 @@ interface UserRecord {
   full_name: string;
   role: 'admin' | 'staff' | 'customer';
   is_active: boolean;
+  department_id?: number | null;
+  department_name?: string | null;
+  department_code?: string | null;
   cari_id?: number | null;
   cari_title?: string | null;
   cari_code?: string | null;
   roles: string[];
   created_at: string;
-  permissions?: Record<string, boolean>;
-  effective_permissions?: Record<string, boolean>;
+  permissions?: Record<string, any>;
+  effective_permissions?: Record<string, Record<string, boolean>>;
 }
 
 interface CariOption {
@@ -46,798 +58,1316 @@ interface CariOption {
   phone?: string;
 }
 
-export const UserManagement: React.FC = () => {
-  const [users, setUsers] = useState<UserRecord[]>([]);
-  const [caris, setCaris] = useState<CariOption[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [roleFilter, setRoleFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+interface ModuleMeta {
+  id: string;
+  name: string;
+  category: string;
+}
 
-  // Modal State - User Create
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [modalMode, setModalMode] = useState<'STAFF' | 'CUSTOMER'>('STAFF');
-  const [saving, setSaving] = useState<boolean>(false);
+interface ActionMeta {
+  id: 'read' | 'create' | 'update' | 'delete' | 'approve';
+  name: string;
+}
+
+interface UserManagementProps {
+  currentView?: string;
+  onNavigate?: (view: string) => void;
+}
+
+export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onNavigate }) => {
+  const { can } = useAuth();
+  const canCreateUser = can('settings_users', 'create');
+  const canDeleteUser = can('settings_users', 'delete');
+  const canUpdatePerms = can('settings_permissions', 'update');
+  const canCreateDept = can('settings_permissions', 'create');
+  const canDeleteDept = can('settings_permissions', 'delete');
+
+  // Determine active tab based on sidebar navigation
+  const getInitialTab = (): 'users' | 'departments' | 'permissions' | 'system' => {
+    if (currentView === 'settings_permissions') return 'permissions';
+    if (currentView === 'settings_system') return 'system';
+    return 'users';
+  };
+
+  const [activeTab, setActiveTab] = useState<'users' | 'departments' | 'permissions' | 'system'>(getInitialTab);
+
+  // Sync tab if currentView prop changes
+  useEffect(() => {
+    if (currentView === 'settings_permissions') {
+      setActiveTab('permissions');
+    } else if (currentView === 'settings_system') {
+      setActiveTab('system');
+    } else if (currentView === 'settings_users' || currentView === 'user_management') {
+      setActiveTab('users');
+    }
+  }, [currentView]);
+
+  // Data states
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
+  const [caris, setCaris] = useState<CariOption[]>([]);
+  const [modules, setModules] = useState<ModuleMeta[]>([]);
+  const [actionsList, setActionsList] = useState<ActionMeta[]>([
+    { id: 'read', name: 'Görüntüle' },
+    { id: 'create', name: 'Ekle' },
+    { id: 'update', name: 'Düzenle' },
+    { id: 'delete', name: 'Sil' },
+    { id: 'approve', name: 'Onayla' }
+  ]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Filters for User Tab
+  const [userSearch, setUserSearch] = useState<string>('');
+  const [userRoleFilter, setUserRoleFilter] = useState<string>('ALL');
+  const [userStatusFilter, setUserStatusFilter] = useState<string>('ALL');
+  const [userDeptFilter, setUserDeptFilter] = useState<string>('ALL');
+
+  // Modal State - User Create / Edit
+  const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(false);
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [userModalMode, setUserModalMode] = useState<'STAFF' | 'CUSTOMER'>('STAFF');
+  const [formSaving, setFormSaving] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
-  // Modal State - ACL Permissions
-  const [isPermsModalOpen, setIsPermsModalOpen] = useState<boolean>(false);
-  const [permsUser, setPermsUser] = useState<UserRecord | null>(null);
-  const [userPerms, setUserPerms] = useState<Record<string, boolean>>({});
-  const [permsSaving, setPermsSaving] = useState<boolean>(false);
-  const [permsError, setPermsError] = useState<string | null>(null);
-  const [permsSuccess, setPermsSuccess] = useState<string | null>(null);
-
-  // Form Fields - Staff
-  const [staffName, setStaffName] = useState<string>('');
-  const [staffEmail, setStaffEmail] = useState<string>('');
-  const [staffDepartment, setStaffDepartment] = useState<string>('URETIM');
-  const [staffSystemRole, setStaffSystemRole] = useState<'admin' | 'staff'>('staff');
-  const [staffPassword, setStaffPassword] = useState<string>('');
-
-  // Form Fields - Customer (B2B)
+  // Form Fields - User
+  const [userName, setUserName] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [userPassword, setUserPassword] = useState<string>('');
+  const [userDeptId, setUserDeptId] = useState<number | ''>('');
+  const [userSystemRole, setUserSystemRole] = useState<'admin' | 'staff' | 'customer'>('staff');
+  const [userIsActive, setUserIsActive] = useState<boolean>(true);
   const [selectedCariId, setSelectedCariId] = useState<number | ''>('');
-  const [customerContactName, setCustomerContactName] = useState<string>('');
-  const [customerUsername, setCustomerUsername] = useState<string>('');
-  const [customerPassword, setCustomerPassword] = useState<string>('');
 
-  const fetchUsers = async () => {
+  // Password Reset Modal
+  const [isResetPwdModalOpen, setIsResetPwdModalOpen] = useState<boolean>(false);
+  const [resetTargetUser, setResetTargetUser] = useState<UserRecord | null>(null);
+  const [newPasswordVal, setNewPasswordVal] = useState<string>('');
+  const [resetSaving, setResetSaving] = useState<boolean>(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
+
+  // Department Modal
+  const [isDeptModalOpen, setIsDeptModalOpen] = useState<boolean>(false);
+  const [editingDeptId, setEditingDeptId] = useState<number | null>(null);
+  const [deptName, setDeptName] = useState<string>('');
+  const [deptCode, setDeptCode] = useState<string>('');
+  const [deptDescription, setDeptDescription] = useState<string>('');
+  const [deptIsActive, setDeptIsActive] = useState<boolean>(true);
+  const [deptSaving, setDeptSaving] = useState<boolean>(false);
+  const [deptError, setDeptError] = useState<string | null>(null);
+  const [deptSuccess, setDeptSuccess] = useState<string | null>(null);
+
+  // Permissions Matrix Tab State
+  const [matrixTargetType, setMatrixTargetType] = useState<'DEPARTMENT' | 'USER'>('DEPARTMENT');
+  const [selectedDeptIdForMatrix, setSelectedDeptIdForMatrix] = useState<number | ''>('');
+  const [selectedUserIdForMatrix, setSelectedUserIdForMatrix] = useState<number | ''>('');
+  const [matrixData, setMatrixData] = useState<Record<string, Record<string, boolean>>>({});
+  const [matrixSaving, setMatrixSaving] = useState<boolean>(false);
+  const [matrixSuccess, setMatrixSuccess] = useState<string | null>(null);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
+
+  // Load Initial Data
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('/api/v1/auth/users');
-      setUsers(res.data);
+      const [usersRes, deptsRes, carisRes, metaRes] = await Promise.all([
+        axios.get('/api/v1/auth/users'),
+        axios.get('/api/v1/auth/departments'),
+        axios.get('/api/v1/caris/?cari_type=CUSTOMER&limit=300').catch(() => ({ data: [] })),
+        axios.get('/api/v1/auth/permissions/modules').catch(() => ({
+          data: { modules: [], actions: [] }
+        }))
+      ]);
+
+      setUsers(usersRes.data || []);
+      setDepartments(deptsRes.data || []);
+      setCaris(carisRes.data?.items || carisRes.data || []);
+
+      if (metaRes.data?.modules && metaRes.data.modules.length > 0) {
+        setModules(metaRes.data.modules);
+      }
+      if (metaRes.data?.actions && metaRes.data.actions.length > 0) {
+        setActionsList(metaRes.data.actions);
+      }
+
+      // Default selection for permissions matrix
+      if (deptsRes.data && deptsRes.data.length > 0 && selectedDeptIdForMatrix === '') {
+        setSelectedDeptIdForMatrix(deptsRes.data[0].id);
+      }
+      if (usersRes.data && usersRes.data.length > 0 && selectedUserIdForMatrix === '') {
+        setSelectedUserIdForMatrix(usersRes.data[0].id);
+      }
     } catch (err: any) {
-      console.error('Kullanıcılar yüklenirken hata:', err);
+      console.error('Veri yüklenirken hata oluştu:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchCaris = async () => {
-    try {
-      const res = await axios.get('/api/v1/caris/?cari_type=CUSTOMER&limit=300');
-      setCaris(res.data.items || res.data || []);
-    } catch (err) {
-      console.error('Cari listesi yüklenemedi:', err);
-    }
-  };
-
   useEffect(() => {
-    fetchUsers();
-    fetchCaris();
+    fetchData();
   }, []);
 
-  const handleCariChange = (cariId: number) => {
-    setSelectedCariId(cariId);
-    const chosen = caris.find((c) => c.id === cariId);
-    if (chosen) {
-      setCustomerContactName(`${chosen.title} (Portal Sorumlusu)`);
-      const sanitizedCode = chosen.code.toLowerCase().replace(/[^a-z0-9]/g, '');
-      setCustomerUsername(`b2b.${sanitizedCode}@b2b.gunaykimya.com`);
+  // Update matrix data whenever target changes
+  useEffect(() => {
+    if (matrixTargetType === 'DEPARTMENT' && selectedDeptIdForMatrix !== '') {
+      const targetDept = departments.find((d) => d.id === Number(selectedDeptIdForMatrix));
+      if (targetDept && targetDept.permissions) {
+        setMatrixData(JSON.parse(JSON.stringify(targetDept.permissions)));
+      } else {
+        setMatrixData({});
+      }
+    } else if (matrixTargetType === 'USER' && selectedUserIdForMatrix !== '') {
+      const targetUser = users.find((u) => u.id === Number(selectedUserIdForMatrix));
+      if (targetUser) {
+        const base = targetUser.effective_permissions || {};
+        setMatrixData(JSON.parse(JSON.stringify(base)));
+      }
     }
-  };
+  }, [matrixTargetType, selectedDeptIdForMatrix, selectedUserIdForMatrix, departments, users]);
 
-  const resetForm = () => {
-    setStaffName('');
-    setStaffEmail('');
-    setStaffDepartment('URETIM');
-    setStaffSystemRole('staff');
-    setStaffPassword('');
+  // ==========================================
+  // USER HANDLERS
+  // ==========================================
+  const openCreateUserModal = () => {
+    setEditingUserId(null);
+    setUserName('');
+    setUserEmail('');
+    setUserPassword('');
+    setUserDeptId(departments.length > 0 ? departments[0].id : '');
+    setUserSystemRole('staff');
+    setUserIsActive(true);
     setSelectedCariId('');
-    setCustomerContactName('');
-    setCustomerUsername('');
-    setCustomerPassword('');
+    setUserModalMode('STAFF');
     setFormError(null);
     setFormSuccess(null);
+    setIsUserModalOpen(true);
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
+  const openEditUserModal = (u: UserRecord) => {
+    setEditingUserId(u.id);
+    setUserName(u.full_name);
+    setUserEmail(u.email);
+    setUserPassword(''); // Keep blank unless resetting
+    setUserDeptId(u.department_id || '');
+    setUserSystemRole(u.role);
+    setUserIsActive(u.is_active);
+    setSelectedCariId(u.cari_id || '');
+    setUserModalMode(u.role === 'customer' ? 'CUSTOMER' : 'STAFF');
+    setFormError(null);
+    setFormSuccess(null);
+    setIsUserModalOpen(true);
+  };
+
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     setFormSuccess(null);
 
-    if (modalMode === 'STAFF') {
-      if (!staffName.trim() || !staffEmail.trim() || !staffPassword.trim()) {
-        setFormError('Lütfen ad soyad, kurumsal e-posta ve şifre alanlarını eksiksiz doldurunuz.');
-        return;
-      }
-      if (!staffEmail.includes('@')) {
-        setFormError('Geçerli bir kurumsal e-posta adresi giriniz.');
-        return;
-      }
-      if (staffPassword.length < 6) {
-        setFormError('Şifre en az 6 karakter olmalıdır.');
-        return;
-      }
-
-      setSaving(true);
-      try {
-        await axios.post('/api/v1/auth/register', {
-          full_name: staffName.trim(),
-          email: staffEmail.trim().toLowerCase(),
-          password: staffPassword,
-          role: staffSystemRole,
-          role_names: [staffDepartment.toUpperCase()],
-          is_active: true
-        });
-        setFormSuccess('Personel kullanıcısı başarıyla oluşturuldu.');
-        resetForm();
-        setTimeout(() => {
-          setIsModalOpen(false);
-          fetchUsers();
-        }, 800);
-      } catch (err: any) {
-        setFormError(err.response?.data?.detail || 'Kullanıcı oluşturulurken bir hata meydana geldi.');
-      } finally {
-        setSaving(false);
-      }
-    } else {
-      // B2B Müşteri
-      if (!selectedCariId) {
-        setFormError('Lütfen ilişkilendirilecek bir Cari Hesap (Firma) seçiniz.');
-        return;
-      }
-      if (!customerUsername.trim() || !customerPassword.trim()) {
-        setFormError('Lütfen portal kullanıcı adı/e-posta ve şifre alanlarını doldurunuz.');
-        return;
-      }
-      if (customerPassword.length < 6) {
-        setFormError('Şifre en az 6 karakter olmalıdır.');
-        return;
-      }
-
-      setSaving(true);
-      try {
-        await axios.post('/api/v1/auth/register', {
-          full_name: customerContactName.trim() || 'B2B Müşteri Temsilcisi',
-          email: customerUsername.trim().toLowerCase(),
-          password: customerPassword,
-          role: 'customer',
-          role_names: ['B2B_CUSTOMER'],
-          cari_id: Number(selectedCariId),
-          is_active: true
-        });
-        setFormSuccess('B2B Müşteri portal hesabı başarıyla tanımlandı.');
-        resetForm();
-        setTimeout(() => {
-          setIsModalOpen(false);
-          fetchUsers();
-        }, 800);
-      } catch (err: any) {
-        setFormError(err.response?.data?.detail || 'B2B kullanıcısı oluşturulamadı.');
-      } finally {
-        setSaving(false);
-      }
+    if (!userName.trim() || !userEmail.trim()) {
+      setFormError('Lütfen ad soyad ve e-posta alanlarını doldurunuz.');
+      return;
     }
-  };
 
-  const openPermissionsModal = (user: UserRecord) => {
-    setPermsUser(user);
-    setPermsError(null);
-    setPermsSuccess(null);
-    const initialPerms = { ...(user.effective_permissions || user.permissions || {}) };
-    setUserPerms(initialPerms);
-    setIsPermsModalOpen(true);
-  };
+    if (!editingUserId && (!userPassword.trim() || userPassword.length < 6)) {
+      setFormError('Yeni kullanıcılar için en az 6 karakterli şifre zorunludur.');
+      return;
+    }
 
-  const handleSavePermissions = async () => {
-    if (!permsUser) return;
-    setPermsSaving(true);
-    setPermsError(null);
-    setPermsSuccess(null);
+    if (userModalMode === 'CUSTOMER' && !selectedCariId) {
+      setFormError('B2B Müşteri için bir Cari Hesap seçimi zorunludur.');
+      return;
+    }
+
+    setFormSaving(true);
     try {
-      const res = await axios.patch(`/api/v1/auth/users/${permsUser.id}/permissions`, {
-        permissions: userPerms
-      });
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === permsUser.id
-            ? {
-                ...u,
-                permissions: res.data.permissions,
-                effective_permissions: res.data.effective_permissions
-              }
-            : u
-        )
-      );
-      setPermsSuccess('Yetkiler başarıyla güncellendi.');
+      if (editingUserId) {
+        // Edit User
+        const updatePayload: any = {
+          full_name: userName.trim(),
+          email: userEmail.trim().toLowerCase(),
+          role: userModalMode === 'CUSTOMER' ? 'customer' : userSystemRole,
+          department_id: userModalMode === 'CUSTOMER' ? null : (userDeptId ? Number(userDeptId) : null),
+          is_active: userIsActive,
+          cari_id: userModalMode === 'CUSTOMER' ? Number(selectedCariId) : null
+        };
+        if (userPassword.trim()) {
+          updatePayload.password = userPassword.trim();
+        }
+
+        const res = await axios.put(`/api/v1/auth/users/${editingUserId}`, updatePayload);
+        setUsers((prev) => prev.map((u) => (u.id === editingUserId ? res.data : u)));
+        setFormSuccess('Kullanıcı bilgileri başarıyla güncellendi.');
+      } else {
+        // Create User
+        const createPayload = {
+          full_name: userName.trim(),
+          email: userEmail.trim().toLowerCase(),
+          password: userPassword.trim(),
+          role: userModalMode === 'CUSTOMER' ? 'customer' : userSystemRole,
+          department_id: userModalMode === 'CUSTOMER' ? null : (userDeptId ? Number(userDeptId) : null),
+          cari_id: userModalMode === 'CUSTOMER' ? Number(selectedCariId) : null,
+          is_active: userIsActive
+        };
+
+        const res = await axios.post('/api/v1/auth/users', createPayload);
+        setUsers((prev) => [res.data, ...prev]);
+        setFormSuccess('Yeni kullanıcı başarıyla oluşturuldu.');
+      }
+
       setTimeout(() => {
-        setIsPermsModalOpen(false);
-        setPermsSuccess(null);
+        setIsUserModalOpen(false);
       }, 700);
     } catch (err: any) {
-      setPermsError(err.response?.data?.detail || 'Yetkiler güncellenirken hata oluştu.');
+      setFormError(err.response?.data?.detail || 'Kullanıcı kaydedilirken hata oluştu.');
     } finally {
-      setPermsSaving(false);
+      setFormSaving(false);
     }
   };
 
-  const handleToggleStatus = async (user: UserRecord) => {
+  const handleToggleUserStatus = async (u: UserRecord) => {
     try {
-      const res = await axios.patch(`/api/v1/auth/users/${user.id}/status?is_active=${!user.is_active}`);
-      setUsers((prev) =>
-        prev.map((u) => (u.id === user.id ? { ...u, is_active: res.data.is_active } : u))
-      );
+      const res = await axios.patch(`/api/v1/auth/users/${u.id}/status?is_active=${!u.is_active}`);
+      setUsers((prev) => prev.map((item) => (item.id === u.id ? { ...item, is_active: res.data.is_active } : item)));
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Kullanıcı durumu güncellenirken hata oluştu.');
+      alert(err.response?.data?.detail || 'Durum değiştirilemedi.');
     }
   };
 
-  // Filtered Users
+  const handleOpenResetPassword = (u: UserRecord) => {
+    setResetTargetUser(u);
+    setNewPasswordVal('');
+    setResetError(null);
+    setResetSuccess(null);
+    setIsResetPwdModalOpen(true);
+  };
+
+  const handleSaveResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetTargetUser) return;
+    if (newPasswordVal.length < 6) {
+      setResetError('Şifre en az 6 karakter olmalıdır.');
+      return;
+    }
+
+    setResetSaving(true);
+    setResetError(null);
+    try {
+      await axios.post(`/api/v1/auth/users/${resetTargetUser.id}/reset-password`, {
+        new_password: newPasswordVal
+      });
+      setResetSuccess('Şifre başarıyla güncellendi.');
+      setTimeout(() => {
+        setIsResetPwdModalOpen(false);
+      }, 700);
+    } catch (err: any) {
+      setResetError(err.response?.data?.detail || 'Şifre sıfırlanırken hata oluştu.');
+    } finally {
+      setResetSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async (u: UserRecord) => {
+    if (!window.confirm(`'${u.full_name}' (${u.email}) kullanıcısını silmek istediğinize emin misiniz?`)) {
+      return;
+    }
+    try {
+      await axios.delete(`/api/v1/auth/users/${u.id}`);
+      setUsers((prev) => prev.filter((item) => item.id !== u.id));
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Kullanıcı silinemedi.');
+    }
+  };
+
+  // ==========================================
+  // DEPARTMENT HANDLERS
+  // ==========================================
+  const openCreateDeptModal = () => {
+    setEditingDeptId(null);
+    setDeptName('');
+    setDeptCode('');
+    setDeptDescription('');
+    setDeptIsActive(true);
+    setDeptError(null);
+    setDeptSuccess(null);
+    setIsDeptModalOpen(true);
+  };
+
+  const openEditDeptModal = (d: DepartmentRecord) => {
+    setEditingDeptId(d.id);
+    setDeptName(d.name);
+    setDeptCode(d.code);
+    setDeptDescription(d.description || '');
+    setDeptIsActive(d.is_active);
+    setDeptError(null);
+    setDeptSuccess(null);
+    setIsDeptModalOpen(true);
+  };
+
+  const handleSaveDept = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deptName.trim() || !deptCode.trim()) {
+      setDeptError('Lütfen departman adı ve kodunu eksiksiz giriniz.');
+      return;
+    }
+
+    setDeptSaving(true);
+    setDeptError(null);
+    setDeptSuccess(null);
+
+    try {
+      if (editingDeptId) {
+        const res = await axios.put(`/api/v1/auth/departments/${editingDeptId}`, {
+          name: deptName.trim(),
+          code: deptCode.trim().toUpperCase(),
+          description: deptDescription.trim(),
+          is_active: deptIsActive
+        });
+        setDepartments((prev) => prev.map((d) => (d.id === editingDeptId ? res.data : d)));
+        setDeptSuccess('Departman başarıyla güncellendi.');
+      } else {
+        const res = await axios.post('/api/v1/auth/departments', {
+          name: deptName.trim(),
+          code: deptCode.trim().toUpperCase(),
+          description: deptDescription.trim(),
+          is_active: deptIsActive
+        });
+        setDepartments((prev) => [...prev, res.data]);
+        setDeptSuccess('Yeni departman başarıyla oluşturuldu.');
+      }
+
+      setTimeout(() => {
+        setIsDeptModalOpen(false);
+      }, 700);
+    } catch (err: any) {
+      setDeptError(err.response?.data?.detail || 'Departman kaydedilirken hata oluştu.');
+    } finally {
+      setDeptSaving(false);
+    }
+  };
+
+  const handleDeleteDept = async (d: DepartmentRecord) => {
+    if (d.user_count > 0) {
+      if (!window.confirm(`Bu departmana bağlı ${d.user_count} kullanıcı bulunmaktadır. Departman silindiğinde bu kullanıcıların departman bağı kaldırılacaktır. Onaylıyor musunuz?`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`'${d.name}' departmanını silmek istediğinize emin misiniz?`)) {
+        return;
+      }
+    }
+
+    try {
+      await axios.delete(`/api/v1/auth/departments/${d.id}`);
+      setDepartments((prev) => prev.filter((item) => item.id !== d.id));
+      // Refresh users to reflect unlinked departments
+      const res = await axios.get('/api/v1/auth/users');
+      setUsers(res.data);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Departman silinemedi.');
+    }
+  };
+
+  // ==========================================
+  // PERMISSIONS MATRIX HANDLERS
+  // ==========================================
+  const togglePermissionCell = (moduleId: string, actionId: string) => {
+    setMatrixData((prev) => {
+      const currentMod = prev[moduleId] || {
+        read: false,
+        create: false,
+        update: false,
+        delete: false,
+        approve: false
+      };
+      return {
+        ...prev,
+        [moduleId]: {
+          ...currentMod,
+          [actionId]: !currentMod[actionId]
+        }
+      };
+    });
+  };
+
+  const toggleAllActionsForModule = (moduleId: string) => {
+    setMatrixData((prev) => {
+      const currentMod = prev[moduleId] || {};
+      const allActive = actionsList.every((act) => currentMod[act.id]);
+      const nextState = !allActive;
+      const updatedMod: Record<string, boolean> = {};
+      actionsList.forEach((act) => {
+        updatedMod[act.id] = nextState;
+      });
+      return {
+        ...prev,
+        [moduleId]: updatedMod
+      };
+    });
+  };
+
+  const toggleAllForActionColumn = (actionId: string) => {
+    setMatrixData((prev) => {
+      const allActive = modules.every((m) => prev[m.id]?.[actionId]);
+      const nextState = !allActive;
+      const updated = { ...prev };
+      modules.forEach((m) => {
+        if (!updated[m.id]) {
+          updated[m.id] = { read: false, create: false, update: false, delete: false, approve: false };
+        }
+        updated[m.id][actionId] = nextState;
+      });
+      return updated;
+    });
+  };
+
+  const handleSaveMatrix = async () => {
+    setMatrixSaving(true);
+    setMatrixError(null);
+    setMatrixSuccess(null);
+
+    try {
+      if (matrixTargetType === 'DEPARTMENT') {
+        if (!selectedDeptIdForMatrix) return;
+        const res = await axios.put(`/api/v1/auth/departments/${selectedDeptIdForMatrix}`, {
+          permissions: matrixData
+        });
+        setDepartments((prev) =>
+          prev.map((d) => (d.id === Number(selectedDeptIdForMatrix) ? res.data : d))
+        );
+        // Refresh users to recalculate effective permissions
+        const usersRes = await axios.get('/api/v1/auth/users');
+        setUsers(usersRes.data);
+        setMatrixSuccess('Departman yetki matrisi başarıyla veritabanına kaydedildi.');
+      } else {
+        if (!selectedUserIdForMatrix) return;
+        const res = await axios.patch(`/api/v1/auth/users/${selectedUserIdForMatrix}/permissions`, {
+          permissions: matrixData
+        });
+        setUsers((prev) =>
+          prev.map((u) => (u.id === Number(selectedUserIdForMatrix) ? res.data : u))
+        );
+        setMatrixSuccess('Kullanıcıya özel yetki matrisi (override) başarıyla veritabanına kaydedildi.');
+      }
+
+      setTimeout(() => {
+        setMatrixSuccess(null);
+      }, 2500);
+    } catch (err: any) {
+      setMatrixError(err.response?.data?.detail || 'Yetki matrisi kaydedilirken hata oluştu.');
+    } finally {
+      setMatrixSaving(false);
+    }
+  };
+
+  // Filtered Users List
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
-      u.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (u.cari_title && u.cari_title.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (u.cari_code && u.cari_code.toLowerCase().includes(searchQuery.toLowerCase()));
+      u.full_name.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.department_name && u.department_name.toLowerCase().includes(userSearch.toLowerCase())) ||
+      (u.cari_title && u.cari_title.toLowerCase().includes(userSearch.toLowerCase()));
 
     const matchesRole =
-      roleFilter === 'ALL' ||
-      (roleFilter === 'ADMIN' && u.role === 'admin') ||
-      (roleFilter === 'STAFF' && u.role === 'staff') ||
-      (roleFilter === 'CUSTOMER' && u.role === 'customer');
+      userRoleFilter === 'ALL' ||
+      (userRoleFilter === 'ADMIN' && u.role === 'admin') ||
+      (userRoleFilter === 'STAFF' && u.role === 'staff') ||
+      (userRoleFilter === 'CUSTOMER' && u.role === 'customer');
 
     const matchesStatus =
-      statusFilter === 'ALL' ||
-      (statusFilter === 'ACTIVE' && u.is_active) ||
-      (statusFilter === 'PASSIVE' && !u.is_active);
+      userStatusFilter === 'ALL' ||
+      (userStatusFilter === 'ACTIVE' && u.is_active) ||
+      (userStatusFilter === 'PASSIVE' && !u.is_active);
 
-    return matchesSearch && matchesRole && matchesStatus;
+    const matchesDept =
+      userDeptFilter === 'ALL' ||
+      (userDeptFilter === 'NONE' && !u.department_id) ||
+      u.department_id === Number(userDeptFilter);
+
+    return matchesSearch && matchesRole && matchesStatus && matchesDept;
   });
 
-  const totalUsers = users.length;
-  const staffUsers = users.filter((u) => u.role === 'staff' || u.role === 'admin').length;
-  const b2bUsers = users.filter((u) => u.role === 'customer').length;
-  const activeUsers = users.filter((u) => u.is_active).length;
-
   return (
-    <div className="space-y-6">
-      {/* Header & Action Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-5 rounded-2xl border border-border shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-[#302480]/10 text-[#302480] dark:bg-[#302480]/20 rounded-xl">
-            <Users className="w-6 h-6" />
+    <div className="space-y-6 animate-fade-in pb-12">
+      {/* Top Header Card */}
+      <div className="bg-surface rounded-2xl border border-border p-5 md:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-soft text-primary text-xs font-bold mb-2">
+            <ShieldCheck className="w-4 h-4" />
+            <span>Merkezi Erişim & Yetki Denetimi</span>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-text">Kullanıcı & Yetki Yönetimi (Modül 8)</h1>
-            <p className="text-xs text-text-muted mt-0.5">
-              Fabrika personeli, departman sorumluları ve B2B müşteri portalı hesaplarının merkezi yönetimi
-            </p>
-          </div>
+          <h1 className="text-xl md:text-2xl font-black text-text tracking-tight">
+            Kullanıcı, Departman ve Yetki Yönetimi
+          </h1>
+          <p className="text-xs text-text-muted mt-1 max-w-2xl">
+            Sistem kullanıcılarını tanımlayın, departman bazlı veya kişiye özel 5 boyutlu (Görüntüle, Ekle, Düzenle, Sil, Onayla) yetki matrisini yönetin.
+          </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={fetchUsers}
-            disabled={loading}
-            className="p-2.5 rounded-xl border border-border text-text-muted hover:text-text hover:bg-surface-hover transition shadow-sm"
-            title="Yenile"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-          <button
-            onClick={() => {
-              resetForm();
-              setIsModalOpen(true);
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#302480] hover:bg-[#241a63] transition shadow-sm active:scale-[0.98]"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Yeni Kullanıcı Tanımla</span>
-          </button>
-        </div>
+        <button
+          onClick={fetchData}
+          disabled={loading}
+          className="self-start md:self-auto p-2.5 rounded-xl border border-border text-text-muted hover:text-text hover:bg-bg transition shadow-sm"
+          title="Verileri Yenile"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-surface p-4 rounded-xl border border-border shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold text-text-muted uppercase">Toplam Kullanıcı</div>
-            <div className="text-2xl font-bold text-text mt-1">{totalUsers}</div>
-          </div>
-          <div className="p-2.5 bg-blue-50 text-blue-600 dark:bg-blue-950/40 rounded-lg">
-            <Users className="w-5 h-5" />
-          </div>
-        </div>
+      {/* Main Tabs Navigation */}
+      <div className="flex border-b border-border gap-2 overflow-x-auto scrollbar-none">
+        <button
+          onClick={() => {
+            setActiveTab('users');
+            onNavigate?.('settings_users');
+          }}
+          className={`flex items-center gap-2 py-3 px-5 text-xs font-bold transition border-b-2 whitespace-nowrap ${
+            activeTab === 'users'
+              ? 'border-primary text-primary bg-primary-soft/30 rounded-t-xl'
+              : 'border-transparent text-text-muted hover:text-text hover:bg-bg/50 rounded-t-xl'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Kullanıcı Yönetimi</span>
+          <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-bg font-mono border border-border">
+            {users.length}
+          </span>
+        </button>
 
-        <div className="bg-surface p-4 rounded-xl border border-border shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold text-text-muted uppercase">Şirket Personeli</div>
-            <div className="text-2xl font-bold text-[#302480] mt-1">{staffUsers}</div>
-          </div>
-          <div className="p-2.5 bg-indigo-50 text-[#302480] dark:bg-indigo-950/40 rounded-lg">
-            <Building2 className="w-5 h-5" />
-          </div>
-        </div>
+        <button
+          onClick={() => {
+            setActiveTab('departments');
+          }}
+          className={`flex items-center gap-2 py-3 px-5 text-xs font-bold transition border-b-2 whitespace-nowrap ${
+            activeTab === 'departments'
+              ? 'border-primary text-primary bg-primary-soft/30 rounded-t-xl'
+              : 'border-transparent text-text-muted hover:text-text hover:bg-bg/50 rounded-t-xl'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Departman Yönetimi</span>
+          <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-bg font-mono border border-border">
+            {departments.length}
+          </span>
+        </button>
 
-        <div className="bg-surface p-4 rounded-xl border border-border shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold text-text-muted uppercase">B2B Müşteri / Bayi</div>
-            <div className="text-2xl font-bold text-emerald-600 mt-1">{b2bUsers}</div>
-          </div>
-          <div className="p-2.5 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 rounded-lg">
-            <Globe className="w-5 h-5" />
-          </div>
-        </div>
+        <button
+          onClick={() => {
+            setActiveTab('permissions');
+            onNavigate?.('settings_permissions');
+          }}
+          className={`flex items-center gap-2 py-3 px-5 text-xs font-bold transition border-b-2 whitespace-nowrap ${
+            activeTab === 'permissions'
+              ? 'border-primary text-primary bg-primary-soft/30 rounded-t-xl'
+              : 'border-transparent text-text-muted hover:text-text hover:bg-bg/50 rounded-t-xl'
+          }`}
+        >
+          <Sliders className="w-4 h-4" />
+          <span>Yetki Matrisi (ACL)</span>
+        </button>
 
-        <div className="bg-surface p-4 rounded-xl border border-border shadow-sm flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold text-text-muted uppercase">Aktif Hesaplar</div>
-            <div className="text-2xl font-bold text-teal-600 mt-1">
-              {activeUsers} <span className="text-xs font-normal text-text-muted">/ {totalUsers}</span>
+        <button
+          onClick={() => {
+            setActiveTab('system');
+            onNavigate?.('settings_system');
+          }}
+          className={`flex items-center gap-2 py-3 px-5 text-xs font-bold transition border-b-2 whitespace-nowrap ${
+            activeTab === 'system'
+              ? 'border-primary text-primary bg-primary-soft/30 rounded-t-xl'
+              : 'border-transparent text-text-muted hover:text-text hover:bg-bg/50 rounded-t-xl'
+          }`}
+        >
+          <Shield className="w-4 h-4" />
+          <span>Sistem & Güvenlik</span>
+        </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* TAB 1: KULLANICILAR */}
+      {/* ========================================================================= */}
+      {activeTab === 'users' && (
+        <div className="space-y-4">
+          {/* Action Bar & Filters */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-surface p-4 rounded-xl border border-border">
+            <div className="flex flex-wrap items-center gap-2 flex-1">
+              <div className="relative min-w-[200px] flex-1 max-w-sm">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                <input
+                  type="text"
+                  placeholder="Kullanıcı ara (isim, e-posta, cari)..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-bg border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <select
+                value={userDeptFilter}
+                onChange={(e) => setUserDeptFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs bg-bg border border-border rounded-lg text-text font-medium"
+              >
+                <option value="ALL">Tüm Departmanlar</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+                <option value="NONE">Departmansız</option>
+              </select>
+
+              <select
+                value={userRoleFilter}
+                onChange={(e) => setUserRoleFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs bg-bg border border-border rounded-lg text-text font-medium"
+              >
+                <option value="ALL">Tüm Roller</option>
+                <option value="ADMIN">Yöneticiler (Admin)</option>
+                <option value="STAFF">Personeller (Staff)</option>
+                <option value="CUSTOMER">B2B Müşterileri</option>
+              </select>
+
+              <select
+                value={userStatusFilter}
+                onChange={(e) => setUserStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs bg-bg border border-border rounded-lg text-text font-medium"
+              >
+                <option value="ALL">Tüm Durumlar</option>
+                <option value="ACTIVE">Yalnızca Aktif</option>
+                <option value="PASSIVE">Yalnızca Pasif</option>
+              </select>
+            </div>
+
+            {canCreateUser && (
+              <button
+                onClick={openCreateUserModal}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition active:scale-95 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Yeni Kullanıcı Ekle</span>
+              </button>
+            )}
+          </div>
+
+          {/* Users Table */}
+          <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-bg/80 border-b border-border text-text-muted font-bold uppercase text-[10px]">
+                    <th className="py-3 px-4">Kullanıcı Bilgileri</th>
+                    <th className="py-3 px-4">Departman / Rol</th>
+                    <th className="py-3 px-4">Cari Hesap (B2B)</th>
+                    <th className="py-3 px-4 text-center">Durum</th>
+                    <th className="py-3 px-4 text-right">İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-text-muted">
+                        Kriterlere uygun kullanıcı bulunamadı.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((u) => (
+                      <tr key={u.id} className="hover:bg-bg/40 transition">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-text">{u.full_name}</div>
+                          <div className="text-[11px] text-text-muted font-mono">{u.email}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            {u.department_name ? (
+                              <span className="px-2 py-0.5 rounded-md bg-primary-soft text-primary font-bold text-[10px]">
+                                {u.department_name}
+                              </span>
+                            ) : (
+                              <span className="text-text-muted text-[10px]">—</span>
+                            )}
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
+                                u.role === 'admin'
+                                  ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20'
+                                  : u.role === 'customer'
+                                  ? 'bg-blue-500/10 text-blue-600 border border-blue-500/20'
+                                  : 'bg-bg text-text-muted border border-border'
+                              }`}
+                            >
+                              {u.role}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {u.cari_title ? (
+                            <div>
+                              <div className="font-bold text-text truncate max-w-[180px]">{u.cari_title}</div>
+                              <div className="text-[10px] font-mono text-text-muted">{u.cari_code}</div>
+                            </div>
+                          ) : (
+                            <span className="text-text-muted">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => handleToggleUserStatus(u)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition ${
+                              u.is_active
+                                ? 'bg-success/10 text-success hover:bg-success/20'
+                                : 'bg-danger/10 text-danger hover:bg-danger/20'
+                            }`}
+                            title="Tıklayarak durumu değiştirin"
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${u.is_active ? 'bg-success' : 'bg-danger'}`} />
+                            <span>{u.is_active ? 'Aktif' : 'Pasif'}</span>
+                          </button>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                setMatrixTargetType('USER');
+                                setSelectedUserIdForMatrix(u.id);
+                                setActiveTab('permissions');
+                              }}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-soft transition"
+                              title="Yetki Matrisini Düzenle"
+                            >
+                              <Sliders className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenResetPassword(u)}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-amber-600 hover:bg-amber-50 transition"
+                              title="Şifre Sıfırla"
+                            >
+                              <KeyRound className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => openEditUserModal(u)}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-blue-600 hover:bg-blue-50 transition"
+                              title="Kullanıcıyı Düzenle"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            {canDeleteUser && (
+                              <button
+                                onClick={() => handleDeleteUser(u)}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition"
+                                title="Kullanıcıyı Sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="p-2.5 bg-teal-50 text-teal-600 dark:bg-teal-950/40 rounded-lg">
-            <UserCheck className="w-5 h-5" />
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 2: DEPARTMANLAR */}
+      {/* ========================================================================= */}
+      {activeTab === 'departments' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-surface p-4 rounded-xl border border-border">
+            <div>
+              <h2 className="text-sm font-bold text-text">Şirket Departman Listesi</h2>
+              <p className="text-xs text-text-muted">
+                Her departman için varsayılan yetki şablonu belirleyebilir, yeni departmanlar oluşturabilirsiniz.
+              </p>
+            </div>
+            {canCreateDept && (
+              <button
+                onClick={openCreateDeptModal}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Yeni Departman Ekle</span>
+              </button>
+            )}
           </div>
-        </div>
-      </div>
 
-      {/* Filter & Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface p-4 rounded-xl border border-border shadow-sm">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-          <input
-            type="text"
-            placeholder="İsim, e-posta, firma unvanı veya cari kodu ile ara..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm bg-bg border border-border rounded-lg text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-text-muted font-medium">
-            <Filter className="w-3.5 h-3.5" />
-            <span>Rol:</span>
-          </div>
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            className="py-1.5 px-3 text-xs bg-bg border border-border rounded-lg text-text focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-          >
-            <option value="ALL">Tüm Roller</option>
-            <option value="ADMIN">Yöneticiler (Admin)</option>
-            <option value="STAFF">Şirket Personeli (Staff)</option>
-            <option value="CUSTOMER">B2B Müşterileri (Customer)</option>
-          </select>
-
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="py-1.5 px-3 text-xs bg-bg border border-border rounded-lg text-text focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-          >
-            <option value="ALL">Tüm Durumlar</option>
-            <option value="ACTIVE">Yalnızca Aktif</option>
-            <option value="PASSIVE">Yalnızca Pasif</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Users Data Table */}
-      <div className="bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-bg text-text-muted text-xs uppercase font-semibold border-b border-border">
-              <tr>
-                <th className="px-5 py-3.5">Kullanıcı & Ad Soyad</th>
-                <th className="px-5 py-3.5">Giriş Kimliği / E-Posta</th>
-                <th className="px-5 py-3.5">Rol Tipi</th>
-                <th className="px-5 py-3.5">İlişkili Cari / Firma</th>
-                <th className="px-5 py-3.5">Departman / İzinler</th>
-                <th className="px-5 py-3.5">Durum</th>
-                <th className="px-5 py-3.5 text-right">İşlemler</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-text-muted">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#302480]" />
-                    <span>Kullanıcılar yükleniyor...</span>
-                  </td>
-                </tr>
-              ) : filteredUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-text-muted">
-                    <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                    <span>Kriterlere uygun kullanıcı bulunamadı.</span>
-                  </td>
-                </tr>
-              ) : (
-                filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-surface-hover/70 transition">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white ${
-                            user.role === 'admin'
-                              ? 'bg-[#302480]'
-                              : user.role === 'customer'
-                              ? 'bg-emerald-600'
-                              : 'bg-blue-600'
-                          }`}
-                        >
-                          {user.full_name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-text">{user.full_name}</div>
-                          <div className="text-[11px] text-text-muted">
-                            Kayıt: {new Date(user.created_at).toLocaleDateString('tr-TR')}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <div className="font-mono text-xs text-text font-medium">{user.email}</div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      {user.role === 'admin' ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300/40">
-                          <Shield className="w-3 h-3" />
-                          YÖNETİCİ
-                        </span>
-                      ) : user.role === 'customer' ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-400/30">
-                          <Globe className="w-3 h-3" />
-                          B2B MÜŞTERİ
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300/30">
-                          <Briefcase className="w-3 h-3" />
-                          PERSONEL
-                        </span>
-                      )}
-                    </td>
-
-                    <td className="px-5 py-4">
-                      {user.cari_title ? (
-                        <div>
-                          <div className="font-medium text-xs text-text">{user.cari_title}</div>
-                          <div className="text-[10px] text-text-muted font-mono">{user.cari_code}</div>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-text-muted italic">Günay Kimya A.Ş.</span>
-                      )}
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {user.roles && user.roles.length > 0 ? (
-                          user.roles.map((r, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-bg text-text-muted border border-border"
-                            >
-                              {r}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-text-muted">—</span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          user.is_active
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-500/20'
-                            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border border-gray-300/30'
-                        }`}
-                      >
-                        {user.is_active ? (
-                          <>
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            Aktif
-                          </>
-                        ) : (
-                          <>
-                            <UserX className="w-3 h-3 text-gray-500" />
-                            Pasif
-                          </>
-                        )}
-                      </span>
-                    </td>
-
-                    <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => openPermissionsModal(user)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border border-[#302480]/30 text-[#302480] dark:text-[#a094eb] hover:bg-[#302480]/10 transition shadow-sm"
-                          title="Yetki Matrisini Düzenle"
-                        >
-                          <Sliders className="w-3.5 h-3.5" />
-                          <span>Yetkiler</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleToggleStatus(user)}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border transition ${
-                            user.is_active
-                              ? 'border-danger/30 text-danger hover:bg-danger/10'
-                              : 'border-emerald-500/30 text-emerald-600 hover:bg-emerald-50'
-                          }`}
-                          title={user.is_active ? 'Hesabı Dondur' : 'Hesabı Aktifleştir'}
-                        >
-                          <Power className="w-3.5 h-3.5" />
-                          <span>{user.is_active ? 'Dondur' : 'Aktif Et'}</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* CREATE USER MODAL (MODULE 8) */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-surface rounded-2xl border border-border shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-border flex items-center justify-between bg-bg">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-[#302480]/10 text-[#302480] rounded-lg">
-                  <KeyRound className="w-5 h-5" />
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {departments.map((d) => (
+              <div
+                key={d.id}
+                className="bg-surface p-5 rounded-2xl border border-border shadow-sm flex flex-col justify-between hover:shadow-md transition"
+              >
                 <div>
-                  <h3 className="font-bold text-base text-text">Yeni Kullanıcı Tanımla</h3>
-                  <p className="text-xs text-text-muted">Kullanıcı türünü seçerek hesap detaylarını giriniz</p>
+                  <div className="flex items-start justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-primary-soft text-primary flex items-center justify-center font-bold font-mono">
+                      {d.code.slice(0, 3)}
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-bg text-text-muted border border-border">
+                      {d.code}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base font-extrabold text-text mt-3">{d.name}</h3>
+                  <p className="text-xs text-text-muted mt-1 line-clamp-2 min-h-[32px]">
+                    {d.description || 'Departman açıklaması girilmemiş.'}
+                  </p>
+
+                  <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between text-xs">
+                    <span className="text-text-muted font-medium">Bağlı Personel</span>
+                    <span className="font-bold text-primary font-mono">{d.user_count} Kişi</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => {
+                      setMatrixTargetType('DEPARTMENT');
+                      setSelectedDeptIdForMatrix(d.id);
+                      setActiveTab('permissions');
+                    }}
+                    className="flex-1 py-1.5 px-2 rounded-lg bg-bg hover:bg-primary-soft hover:text-primary text-[11px] font-bold text-text-muted transition flex items-center justify-center gap-1 border border-border"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Yetki Şablonu</span>
+                  </button>
+
+                  <button
+                    onClick={() => openEditDeptModal(d)}
+                    className="p-1.5 rounded-lg text-text-muted hover:text-blue-600 hover:bg-bg transition border border-border"
+                    title="Düzenle"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+
+                  {canDeleteDept && (
+                    <button
+                      onClick={() => handleDeleteDept(d)}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-bg transition border border-border"
+                      title="Sil"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-lg text-text-muted hover:text-text hover:bg-surface transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-            {/* Role Type Selector Tabs */}
-            <div className="p-4 bg-bg/50 border-b border-border">
-              <div className="grid grid-cols-2 gap-2 p-1 bg-surface rounded-xl border border-border">
+      {/* ========================================================================= */}
+      {/* TAB 3: YETKİ MATRİSİ (ACL) */}
+      {/* ========================================================================= */}
+      {activeTab === 'permissions' && (
+        <div className="space-y-4">
+          {/* Target Selector Bar */}
+          <div className="bg-surface p-5 rounded-2xl border border-border shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-2 p-1 bg-bg rounded-xl border border-border">
                 <button
-                  type="button"
-                  onClick={() => {
-                    setModalMode('STAFF');
-                    setFormError(null);
-                  }}
-                  className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition ${
-                    modalMode === 'STAFF'
-                      ? 'bg-[#302480] text-white shadow-sm'
+                  onClick={() => setMatrixTargetType('DEPARTMENT')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+                    matrixTargetType === 'DEPARTMENT'
+                      ? 'bg-primary text-white shadow-sm'
                       : 'text-text-muted hover:text-text'
                   }`}
                 >
                   <Building2 className="w-4 h-4" />
-                  <span>Şirket İçi Personel</span>
+                  <span>Departman Bazlı Yetki</span>
+                </button>
+                <button
+                  onClick={() => setMatrixTargetType('USER')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+                    matrixTargetType === 'USER'
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'text-text-muted hover:text-text'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Kullanıcıya Özel Yetki (Override)</span>
+                </button>
+              </div>
+
+              {/* Target Picker */}
+              <div className="flex items-center gap-3">
+                {matrixTargetType === 'DEPARTMENT' ? (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-text-muted">Departman Seç:</label>
+                    <select
+                      value={selectedDeptIdForMatrix}
+                      onChange={(e) => setSelectedDeptIdForMatrix(Number(e.target.value))}
+                      className="px-3 py-2 text-xs font-bold bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} ({d.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-text-muted">Kullanıcı Seç:</label>
+                    <select
+                      value={selectedUserIdForMatrix}
+                      onChange={(e) => setSelectedUserIdForMatrix(Number(e.target.value))}
+                      className="px-3 py-2 text-xs font-bold bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary max-w-xs"
+                    >
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name} ({u.email}) — [{u.department_name || 'Departmansız'}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {canUpdatePerms && (
+                  <button
+                    onClick={handleSaveMatrix}
+                    disabled={matrixSaving}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-success text-white text-xs font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition active:scale-95 disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{matrixSaving ? 'Kaydediliyor...' : 'Yetkileri Kaydet'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Info Message */}
+            <div className="p-3 bg-primary-soft/40 border border-primary/20 rounded-xl flex items-center justify-between text-xs text-text">
+              <div className="flex items-center gap-2">
+                <Info className="w-4 h-4 text-primary shrink-0" />
+                <span>
+                  {matrixTargetType === 'DEPARTMENT'
+                    ? 'Bu departmandaki tüm personel varsayılan olarak aşağıdaki yetkileri miras alır.'
+                    : 'Kullanıcıya özel tanımlanan kutular, bağlı olduğu departmanın varsayılan yetkilerinin üstüne yazar (Override).'}
+                </span>
+              </div>
+              {matrixSuccess && (
+                <span className="text-success font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-4 h-4" />
+                  {matrixSuccess}
+                </span>
+              )}
+              {matrixError && (
+                <span className="text-danger font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-4 h-4" />
+                  {matrixError}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* 5-Column Matrix Table */}
+          <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-bg/90 border-b border-border text-text font-bold text-[11px]">
+                    <th className="py-3 px-4 min-w-[220px]">Menü / Modül & Alt Ekran</th>
+                    {actionsList.map((act) => (
+                      <th key={act.id} className="py-3 px-3 text-center min-w-[100px]">
+                        <button
+                          type="button"
+                          onClick={() => toggleAllForActionColumn(act.id)}
+                          className="hover:underline font-bold text-text flex items-center justify-center gap-1 mx-auto"
+                          title="Tüm sütunu aç/kapat"
+                        >
+                          <span>{act.name}</span>
+                        </button>
+                      </th>
+                    ))}
+                    <th className="py-3 px-3 text-center min-w-[90px]">Hızlı İşlem</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {modules.map((mod) => {
+                    const modPerms = matrixData[mod.id] || {
+                      read: false,
+                      create: false,
+                      update: false,
+                      delete: false,
+                      approve: false
+                    };
+                    return (
+                      <tr key={mod.id} className="hover:bg-bg/40 transition">
+                        <td className="py-2.5 px-4">
+                          <div className="font-bold text-text">{mod.name}</div>
+                          <div className="text-[10px] text-text-muted flex items-center gap-1 mt-0.5">
+                            <span className="font-mono text-primary font-bold">{mod.category}</span>
+                            <span>•</span>
+                            <span className="font-mono text-[9px]">{mod.id}</span>
+                          </div>
+                        </td>
+
+                        {actionsList.map((act) => {
+                          const isChecked = Boolean(modPerms[act.id]);
+                          return (
+                            <td key={act.id} className="py-2.5 px-3 text-center">
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => togglePermissionCell(mod.id, act.id)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-9 h-5 bg-bg peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary border border-border"></div>
+                              </label>
+                            </td>
+                          );
+                        })}
+
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => toggleAllActionsForModule(mod.id)}
+                            className="text-[10px] px-2 py-1 rounded bg-bg text-text-muted hover:text-text hover:bg-surface border border-border font-medium transition"
+                          >
+                            Tümü
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 4: SİSTEM & GÜVENLİK */}
+      {/* ========================================================================= */}
+      {activeTab === 'system' && (
+        <div className="space-y-4">
+          <div className="bg-surface p-6 rounded-2xl border border-border shadow-sm space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-primary-soft text-primary flex items-center justify-center">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-text">Sıfır Güven (Zero-Trust) Güvenlik Mimarisi</h2>
+                <p className="text-xs text-text-muted">
+                  Kurumsal kimyasal üretim verileri, formülasyon reçeteleri ve müşteri hesapları katı güvenlik kalkanıyla korunmaktadır.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-border">
+              <div className="p-4 rounded-xl bg-bg border border-border space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-success">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Anti-Scraping Hız Sınırı</span>
+                </div>
+                <p className="text-xs text-text-muted">
+                  Kullanıcı bazlı istek frekansı izlenir. Aşırı toplu veri çekme girişimlerinde oturum anında kilitlenir.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-bg border border-border space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-success">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Lisans & Domain Kilidi</span>
+                </div>
+                <p className="text-xs text-text-muted">
+                  API ve frontend sadece lisanslı yetkili sunucu ve domainler üzerinde çalıştırılabilir.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-bg border border-border space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-success">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Katı B2B İzolasyonu</span>
+                </div>
+                <p className="text-xs text-text-muted">
+                  Müşteri rolündeki hesaplar cari_id bazında tamamen izole edilmiştir. Başka firmalara erişim donanımsal olarak engellenir.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: KULLANICI EKLE / DÜZENLE */}
+      {/* ========================================================================= */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-surface rounded-2xl border border-border shadow-2xl max-w-lg w-full overflow-hidden animate-scale-up">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-text text-sm">
+                <Users className="w-4 h-4 text-primary" />
+                <span>{editingUserId ? 'Kullanıcıyı Düzenle' : 'Yeni Kullanıcı Tanımla'}</span>
+              </div>
+              <button
+                onClick={() => setIsUserModalOpen(false)}
+                className="p-1 rounded-lg text-text-muted hover:text-text hover:bg-bg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Mode Selector */}
+            {!editingUserId && (
+              <div className="p-3 bg-bg/50 border-b border-border flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUserModalMode('STAFF')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${
+                    userModalMode === 'STAFF' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4" />
+                  <span>Şirket Personeli</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setModalMode('CUSTOMER');
-                    setFormError(null);
-                  }}
-                  className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition ${
-                    modalMode === 'CUSTOMER'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-text-muted hover:text-text'
+                  onClick={() => setUserModalMode('CUSTOMER')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${
+                    userModalMode === 'CUSTOMER' ? 'bg-emerald-600 text-white shadow-sm' : 'text-text-muted hover:text-text'
                   }`}
                 >
                   <Globe className="w-4 h-4" />
                   <span>B2B Müşteri / Bayi</span>
                 </button>
               </div>
-            </div>
+            )}
 
-            {/* Modal Body / Form */}
-            <form onSubmit={handleCreateUser} className="p-5 space-y-4 overflow-y-auto flex-1">
+            <form onSubmit={handleSaveUser} className="p-5 space-y-3.5">
               {formError && (
-                <div className="p-3 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs font-medium flex items-center gap-2">
+                <div className="p-2.5 rounded-xl bg-danger/10 border border-danger/20 text-danger text-xs font-bold flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   <span>{formError}</span>
                 </div>
               )}
               {formSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-500/30 text-emerald-700 text-xs font-medium flex items-center gap-2">
-                  <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+                <div className="p-2.5 rounded-xl bg-success/10 border border-success/20 text-success text-xs font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>{formSuccess}</span>
                 </div>
               )}
 
-              {modalMode === 'STAFF' ? (
-                /* ŞİRKET İÇİ PERSONEL ALANLARI */
-                <>
+              <div>
+                <label className="block text-xs font-bold text-text mb-1">Ad Soyad *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Ahmet Yılmaz"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text mb-1">E-Posta Adresi *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="ahmet.yilmaz@gunaykimya.com"
+                  value={userEmail}
+                  onChange={(e) => setUserEmail(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              {(!editingUserId || userPassword) && (
+                <div>
+                  <label className="block text-xs font-bold text-text mb-1">
+                    {editingUserId ? 'Yeni Şifre (Boş bırakılırsa değişmez)' : 'Giriş Şifresi *'}
+                  </label>
+                  <input
+                    type="password"
+                    required={!editingUserId}
+                    placeholder="En az 6 karakter"
+                    value={userPassword}
+                    onChange={(e) => setUserPassword(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              )}
+
+              {userModalMode === 'STAFF' ? (
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-text mb-1">
-                      Personel Adı Soyadı *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={staffName}
-                      onChange={(e) => setStaffName(e.target.value)}
-                      placeholder="Örn: Ahmet Yılmaz"
-                      className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-text mb-1">
-                      Kurumsal E-Posta Adresi *
-                    </label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                      <input
-                        type="email"
-                        required
-                        value={staffEmail}
-                        onChange={(e) => setStaffEmail(e.target.value)}
-                        placeholder="ahmet.yilmaz@gunaykimya.com"
-                        className="w-full pl-9 pr-3 py-2 text-sm bg-bg border border-border rounded-xl text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-text mb-1">
-                        Departman *
-                      </label>
-                      <select
-                        value={staffDepartment}
-                        onChange={(e) => setStaffDepartment(e.target.value)}
-                        className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-                      >
-                        <option value="URETIM">Üretim & Fabrika</option>
-                        <option value="DEPO_SORUMLUSU">Depo & Lojistik</option>
-                        <option value="MUHASEBE">Muhasebe & Finans</option>
-                        <option value="SATIS">Satış & CRM</option>
-                        <option value="IK">İnsan Kaynakları</option>
-                        <option value="KALITE">Kalite Kontrol / Ar-Ge</option>
-                        <option value="ADMIN">Üst Yönetim</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-text mb-1">
-                        Sistem Yetki Rolü
-                      </label>
-                      <select
-                        value={staffSystemRole}
-                        onChange={(e) => setStaffSystemRole(e.target.value as 'admin' | 'staff')}
-                        className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-                      >
-                        <option value="staff">Standart Personel (Staff)</option>
-                        <option value="admin">Sistem Yöneticisi (Admin)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-text mb-1">
-                      Giriş Şifresi *
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={staffPassword}
-                      onChange={(e) => setStaffPassword(e.target.value)}
-                      placeholder="En az 6 karakter"
-                      className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#302480]/30"
-                    />
-                  </div>
-                </>
-              ) : (
-                /* B2B MÜŞTERİ / BAYİ ALANLARI */
-                <>
-                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300">
-                    <p className="font-semibold">B2B Portal İzolasyonu:</p>
-                    <p className="mt-0.5">
-                      Seçilen Cari Hesap (Müşteri) dışındaki hiçbir sipariş veya cari verisi bu kullanıcıya gösterilmez.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-text mb-1">
-                      Cari Kart (Firma Seçimi) *
-                    </label>
+                    <label className="block text-xs font-bold text-text mb-1">Departman *</label>
                     <select
-                      required
-                      value={selectedCariId}
-                      onChange={(e) => handleCariChange(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                      value={userDeptId}
+                      onChange={(e) => setUserDeptId(e.target.value ? Number(e.target.value) : '')}
+                      className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
                     >
-                      <option value="">-- Müşteri Cari Kartı Seçiniz --</option>
-                      {caris.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          [{c.code}] {c.title}
+                      <option value="">-- Departman Seçin --</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} ({d.code})
                         </option>
                       ))}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-text mb-1">
-                      Firma Yetkili Adı *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={customerContactName}
-                      onChange={(e) => setCustomerContactName(e.target.value)}
-                      placeholder="Örn: ABC Kimya - Satınalma Sorumlusu"
-                      className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                    />
+                    <label className="block text-xs font-bold text-text mb-1">Rol</label>
+                    <select
+                      value={userSystemRole}
+                      onChange={(e) => setUserSystemRole(e.target.value as any)}
+                      className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="staff">Standart Personel</option>
+                      <option value="admin">Sistem Yöneticisi (Admin)</option>
+                    </select>
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-text mb-1">
-                      Portal Kullanıcı Adı / Kimlik *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={customerUsername}
-                      onChange={(e) => setCustomerUsername(e.target.value)}
-                      placeholder="b2b.musterikodu@b2b.gunaykimya.com veya Firma Adı"
-                      className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text placeholder-text-muted font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                    />
-                    <p className="text-[11px] text-text-muted mt-1">
-                      Müşteri giriş ekranında bu e-postayı veya doğrudan firma unvanını yazarak giriş yapabilir.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-text mb-1">
-                      B2B Portal Şifresi *
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={customerPassword}
-                      onChange={(e) => setCustomerPassword(e.target.value)}
-                      placeholder="En az 6 karakter"
-                      className="w-full px-3 py-2 text-sm bg-bg border border-border rounded-xl text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                    />
-                  </div>
-                </>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-text mb-1">Bağlı Cari Hesap (Firma) *</label>
+                  <select
+                    value={selectedCariId}
+                    onChange={(e) => setSelectedCariId(e.target.value ? Number(e.target.value) : '')}
+                    required
+                    className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">-- Cari Firma Seçiniz --</option>
+                    {caris.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        [{c.code}] {c.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
 
-              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="userActiveCheck"
+                  checked={userIsActive}
+                  onChange={(e) => setUserIsActive(e.target.checked)}
+                  className="rounded border-border text-primary focus:ring-primary"
+                />
+                <label htmlFor="userActiveCheck" className="text-xs font-bold text-text cursor-pointer">
+                  Kullanıcı Aktif Olarak Başlasın
+                </label>
+              </div>
+
               <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-text-muted hover:text-text rounded-xl border border-border hover:bg-surface-hover transition"
+                  onClick={() => setIsUserModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-xs font-bold text-text-muted hover:text-text hover:bg-bg transition"
                 >
-                  Vazgeç
+                  İptal
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
-                  className={`inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white rounded-xl shadow-sm transition active:scale-[0.98] ${
-                    modalMode === 'STAFF'
-                      ? 'bg-[#302480] hover:bg-[#241a63]'
-                      : 'bg-emerald-600 hover:bg-emerald-700'
-                  }`}
+                  disabled={formSaving}
+                  className="px-5 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition disabled:opacity-50"
                 >
-                  {saving ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Kaydediliyor...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Kullanıcıyı Kaydet</span>
-                    </>
-                  )}
+                  {formSaving ? 'Kaydediliyor...' : editingUserId ? 'Değişiklikleri Kaydet' : 'Kullanıcıyı Oluştur'}
                 </button>
               </div>
             </form>
@@ -845,253 +1375,172 @@ export const UserManagement: React.FC = () => {
         </div>
       )}
 
-      {/* DYNAMIC PERMISSIONS MATRIX MODAL (ACL) */}
-      {isPermsModalOpen && permsUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-surface rounded-2xl border border-border shadow-xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-border flex items-center justify-between bg-bg">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-[#302480]/10 text-[#302480] rounded-lg">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-text">Yetki Düzenleme Matrisi (ACL)</h3>
-                  <p className="text-xs text-text-muted">
-                    {permsUser.full_name} ({permsUser.email})
-                  </p>
-                </div>
+      {/* ========================================================================= */}
+      {/* MODAL: ŞİFRE SIFIRLA */}
+      {/* ========================================================================= */}
+      {isResetPwdModalOpen && resetTargetUser && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-surface rounded-2xl border border-border shadow-2xl max-w-sm w-full overflow-hidden animate-scale-up">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-text text-sm">
+                <KeyRound className="w-4 h-4 text-amber-500" />
+                <span>Şifre Sıfırlama</span>
               </div>
               <button
-                onClick={() => setIsPermsModalOpen(false)}
-                className="p-1.5 rounded-lg text-text-muted hover:text-text hover:bg-surface transition"
+                onClick={() => setIsResetPwdModalOpen(false)}
+                className="p-1 rounded-lg text-text-muted hover:text-text hover:bg-bg"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-5 space-y-4 overflow-y-auto flex-1">
-              {permsError && (
-                <div className="p-3 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs font-medium flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{permsError}</span>
+            <form onSubmit={handleSaveResetPassword} className="p-5 space-y-4">
+              {resetError && (
+                <div className="p-2.5 rounded-xl bg-danger/10 border border-danger/20 text-danger text-xs font-bold">
+                  {resetError}
                 </div>
               )}
-              {permsSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-500/30 text-emerald-700 text-xs font-medium flex items-center gap-2">
-                  <Check className="w-4 h-4 shrink-0 text-emerald-600" />
-                  <span>{permsSuccess}</span>
+              {resetSuccess && (
+                <div className="p-2.5 rounded-xl bg-success/10 border border-success/20 text-success text-xs font-bold">
+                  {resetSuccess}
                 </div>
               )}
 
-              {/* User Summary Pill */}
-              <div className="p-3 bg-bg rounded-xl border border-border flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-text-muted">Hesap Tipi:</span>
-                  <span className="ml-1.5 text-xs font-bold text-text">
-                    {permsUser.role === 'admin'
-                      ? 'Yönetici (Admin)'
-                      : permsUser.role === 'customer'
-                      ? `B2B Müşteri (${permsUser.cari_title || 'Cari Bağlı'})`
-                      : 'Şirket Personeli'}
-                  </span>
+              <div>
+                <p className="text-xs text-text-muted mb-2">
+                  <strong className="text-text">{resetTargetUser.full_name}</strong> ({resetTargetUser.email}) kullanıcısı için yeni bir giriş şifresi tanımlayın:
+                </p>
+                <input
+                  type="password"
+                  required
+                  placeholder="Yeni şifre (en az 6 karakter)"
+                  value={newPasswordVal}
+                  onChange={(e) => setNewPasswordVal(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsResetPwdModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-xs font-bold text-text-muted hover:text-text"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetSaving}
+                  className="px-5 py-2 bg-amber-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-amber-700 transition"
+                >
+                  {resetSaving ? 'Sıfırlanıyor...' : 'Şifreyi Güncelle'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: DEPARTMAN EKLE / DÜZENLE */}
+      {/* ========================================================================= */}
+      {isDeptModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-surface rounded-2xl border border-border shadow-2xl max-w-md w-full overflow-hidden animate-scale-up">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-text text-sm">
+                <Building2 className="w-4 h-4 text-primary" />
+                <span>{editingDeptId ? 'Departmanı Düzenle' : 'Yeni Departman Ekle'}</span>
+              </div>
+              <button
+                onClick={() => setIsDeptModalOpen(false)}
+                className="p-1 rounded-lg text-text-muted hover:text-text hover:bg-bg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveDept} className="p-5 space-y-3.5">
+              {deptError && (
+                <div className="p-2.5 rounded-xl bg-danger/10 border border-danger/20 text-danger text-xs font-bold">
+                  {deptError}
                 </div>
-                {permsUser.role === 'admin' && (
-                  <span className="text-[11px] font-semibold text-purple-700 bg-purple-100 dark:bg-purple-950/60 px-2 py-0.5 rounded-md">
-                    Tam Yönetici Yetkisi
-                  </span>
-                )}
+              )}
+              {deptSuccess && (
+                <div className="p-2.5 rounded-xl bg-success/10 border border-success/20 text-success text-xs font-bold">
+                  {deptSuccess}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-text mb-1">Departman Adı *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Ar-Ge ve Laboratuvar"
+                  value={deptName}
+                  onChange={(e) => setDeptName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                />
               </div>
 
-              {/* Switches based on Role */}
-              <div className="space-y-2.5">
-                {permsUser.role === 'customer' ? (
-                  /* B2B MÜŞTERİ YETKİLERİ */
-                  <>
-                    <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-1">
-                      B2B Portal Yetkileri
-                    </div>
-
-                    {[
-                      {
-                        key: 'b2b_orders',
-                        label: 'Sipariş Verme (Yeni Sipariş)',
-                        desc: 'Müşterinin B2B portalından doğrudan yeni sipariş oluşturup fabrikaya iletmesi.'
-                      },
-                      {
-                        key: 'b2b_tracking',
-                        label: 'Sipariş Takip & Fazlar',
-                        desc: 'Geçmiş ve mevcut siparişlerin onay, üretim ve sevkiyat durumlarını izlemesi.'
-                      },
-                      {
-                        key: 'b2b_statement',
-                        label: 'Cari Ekstre & Bakiye Görme',
-                        desc: 'Anlık borç/alacak bakiyesi, risk limiti ve cari hesap ekstresini görüntülemesi.'
-                      }
-                    ].map((item) => {
-                      const isEnabled = userPerms[item.key] ?? true;
-                      return (
-                        <div
-                          key={item.key}
-                          className="flex items-center justify-between p-3 rounded-xl border border-border bg-bg/60 hover:bg-bg transition"
-                        >
-                          <div className="pr-4">
-                            <div className="text-xs font-bold text-text">{item.label}</div>
-                            <div className="text-[11px] text-text-muted mt-0.5">{item.desc}</div>
-                          </div>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={isEnabled}
-                            onClick={() =>
-                              setUserPerms((prev) => ({
-                                ...prev,
-                                [item.key]: !isEnabled
-                              }))
-                            }
-                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
-                              isEnabled ? 'bg-emerald-600' : 'bg-gray-300 dark:bg-gray-700'
-                            }`}
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
-                                isEnabled ? 'translate-x-5' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </>
-                ) : (
-                  /* ŞİRKET İÇİ PERSONEL YETKİLERİ */
-                  <>
-                    <div className="text-xs font-bold text-[#302480] dark:text-[#a094eb] uppercase tracking-wider mb-1">
-                      Şirket İçi Modül Erişim Yetkileri
-                    </div>
-
-                    {[
-                      {
-                        key: 'orders',
-                        label: 'Sipariş Giriş & Katalog',
-                        desc: 'Yeni sipariş girişi, ürün kataloğu ve sipariş listeleme.'
-                      },
-                      {
-                        key: 'planning',
-                        label: 'Planlama / Sevkiyat',
-                        desc: 'Üretim planlama takvimi, Kanban panosu ve irsaliye/lojistik takibi.'
-                      },
-                      {
-                        key: 'purchasing',
-                        label: 'Satınalma & İç Talep',
-                        desc: 'Hammadde satınalma talepleri, WhatsApp/Mail RFQ yönlendirmeleri.'
-                      },
-                      {
-                        key: 'manufacturing',
-                        label: 'Üretim & Reçete (BOM)',
-                        desc: 'Canlı faz takibi, reçete tasarımı ve iş emirleri.'
-                      },
-                      {
-                        key: 'inventory',
-                        label: 'Stok / Depo & El Terminali',
-                        desc: 'Malzeme stokları, depo yerleşimi, palet/koli ve barkod terminali.'
-                      },
-                      {
-                        key: 'crm',
-                        label: 'Satış & CRM (Müşteriler)',
-                        desc: 'Müşteri profilleri, cari bakiyeler ve ziyaret/CRM notları.'
-                      },
-                      {
-                        key: 'hr',
-                        label: 'İnsan Kaynakları & Mülakat',
-                        desc: 'Aday listesi, işe alım mülakat aşamaları ve değerlendirme kararları.'
-                      },
-                      {
-                        key: 'users',
-                        label: 'Kullanıcı Yönetimi (Admin)',
-                        desc: 'Yeni personel veya müşteri tanımlama ve yetki matrisini düzenleme.'
-                      },
-                      {
-                        key: 'accounting',
-                        label: 'Finansal Genel Bakış',
-                        desc: 'Üst düzey finansal göstergeler ve muhasebe raporları.'
-                      },
-                      {
-                        key: 'quality',
-                        label: 'Kalite Kontrol & Laboratuvar (CoA)',
-                        desc: 'Girdi/çıktı kalite testleri, CoA sertifikaları ve izlenebilirlik.'
-                      }
-                    ].map((item) => {
-                      const isEnabled = userPerms[item.key] ?? false;
-                      return (
-                        <div
-                          key={item.key}
-                          className="flex items-center justify-between p-3 rounded-xl border border-border bg-bg/60 hover:bg-bg transition"
-                        >
-                          <div className="pr-4">
-                            <div className="text-xs font-bold text-text">{item.label}</div>
-                            <div className="text-[11px] text-text-muted mt-0.5">{item.desc}</div>
-                          </div>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={isEnabled}
-                            onClick={() =>
-                              setUserPerms((prev) => ({
-                                ...prev,
-                                [item.key]: !isEnabled
-                              }))
-                            }
-                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#302480]/30 ${
-                              isEnabled ? 'bg-[#302480]' : 'bg-gray-300 dark:bg-gray-700'
-                            }`}
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
-                                isEnabled ? 'translate-x-5' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </>
-                )}
+              <div>
+                <label className="block text-xs font-bold text-text mb-1">Departman Kodu (Kısa) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: ARGE"
+                  value={deptCode}
+                  onChange={(e) => setDeptCode(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono uppercase bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                />
               </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-border flex items-center justify-end gap-2 bg-bg">
-              <button
-                type="button"
-                onClick={() => setIsPermsModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-text-muted hover:text-text rounded-xl border border-border hover:bg-surface-hover transition"
-              >
-                Vazgeç
-              </button>
-              <button
-                type="button"
-                disabled={permsSaving}
-                onClick={handleSavePermissions}
-                className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white rounded-xl bg-[#302480] hover:bg-[#241a63] transition shadow-sm active:scale-[0.98]"
-              >
-                {permsSaving ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Güncelleniyor...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Yetkileri Kaydet</span>
-                  </>
-                )}
-              </button>
-            </div>
+              <div>
+                <label className="block text-xs font-bold text-text mb-1">Açıklama</label>
+                <textarea
+                  rows={2}
+                  placeholder="Departmanın fabrika içi görev ve yetki alanı..."
+                  value={deptDescription}
+                  onChange={(e) => setDeptDescription(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-bg border border-border rounded-xl text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="deptActiveCheck"
+                  checked={deptIsActive}
+                  onChange={(e) => setDeptIsActive(e.target.checked)}
+                  className="rounded border-border text-primary focus:ring-primary"
+                />
+                <label htmlFor="deptActiveCheck" className="text-xs font-bold text-text cursor-pointer">
+                  Departman Aktif
+                </label>
+              </div>
+
+              <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDeptModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-border text-xs font-bold text-text-muted hover:text-text"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={deptSaving}
+                  className="px-5 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition disabled:opacity-50"
+                >
+                  {deptSaving ? 'Kaydediliyor...' : editingDeptId ? 'Değişiklikleri Kaydet' : 'Departmanı Ekle'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
     </div>
   );
 };
+export default UserManagement;

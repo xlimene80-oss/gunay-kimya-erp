@@ -11,9 +11,14 @@ export interface UserProfile {
   cari_title?: string;
   cari_code?: string;
   role?: string;
-  permissions?: Record<string, boolean>;
-  effective_permissions?: Record<string, boolean>;
+  department_id?: number;
+  department_name?: string;
+  department_code?: string;
+  permissions?: Record<string, any>;
+  effective_permissions?: Record<string, any>;
 }
+
+export type PermissionAction = 'read' | 'create' | 'update' | 'delete' | 'approve';
 
 interface AuthContextType {
   token: string | null;
@@ -22,7 +27,8 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  hasPermission: (permissionKey: string) => boolean;
+  hasPermission: (permissionKey: string, action?: PermissionAction) => boolean;
+  can: (moduleKey: string, action?: PermissionAction) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -41,7 +47,7 @@ function decodeJwtPayload(token: string): any {
         .join('')
     );
     return JSON.parse(jsonPayload);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -62,7 +68,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           const res = await axios.get('/api/v1/auth/me');
           setUser(res.data);
-        } catch (err) {
+        } catch {
           // Fallback to JWT payload claims
           const payload = decodeJwtPayload(token);
           if (payload) {
@@ -72,9 +78,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               full_name: payload.sub ? payload.sub.split('@')[0] : 'Kullanıcı',
               roles: payload.roles || [],
               is_active: true,
+              role: payload.user_role,
+              cari_id: payload.cari_id,
+              department_id: payload.department_id,
+              effective_permissions: payload.permissions,
+              permissions: payload.permissions
             });
           } else {
-            // Invalid token
             logout();
           }
         } finally {
@@ -121,6 +131,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           is_active: true,
           cari_id: payload?.cari_id,
           role: payload?.user_role,
+          department_id: payload?.department_id,
+          department_name: response.data?.department_name,
           effective_permissions: payload?.permissions,
           permissions: payload?.permissions
         });
@@ -140,33 +152,56 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     delete axios.defaults.headers.common['Authorization'];
   };
 
-  const hasPermission = (permissionKey: string): boolean => {
+  const hasPermission = (
+    permissionKey: string,
+    action: PermissionAction = 'read'
+  ): boolean => {
     if (!user) return false;
     const roleLower = (user.role || '').toLowerCase();
     const rolesStr = (user.roles || []).join(' ').toLowerCase();
+
+    // Admin / Yönetici has full privileges
     if (
       roleLower === 'admin' ||
       rolesStr.includes('admin') ||
       rolesStr.includes('yönetici') ||
-      rolesStr.includes('yonetici')
+      rolesStr.includes('yonetici') ||
+      rolesStr.includes('yonetim')
     ) {
       return true;
     }
-    if (user.effective_permissions && typeof user.effective_permissions[permissionKey] === 'boolean') {
-      return user.effective_permissions[permissionKey];
+
+    const eff = user.effective_permissions || user.permissions || {};
+    const modPerm = eff[permissionKey];
+
+    if (modPerm) {
+      if (typeof modPerm === 'object' && modPerm !== null) {
+        return Boolean(modPerm[action]);
+      }
+      if (typeof modPerm === 'boolean') {
+        return modPerm;
+      }
     }
-    if (user.permissions && typeof user.permissions[permissionKey] === 'boolean') {
-      return user.permissions[permissionKey];
-    }
+
     // Default fallback based on role if no explicit permission set
     if (roleLower === 'customer' || rolesStr.includes('customer') || rolesStr.includes('bayi')) {
-      return ['b2b_orders', 'b2b_tracking', 'b2b_statement'].includes(permissionKey);
+      const allowedCustomer = ['b2b', 'orders', 'tracking'];
+      return allowedCustomer.includes(permissionKey) && (action === 'read' || action === 'create');
     }
-    // Staff standard
-    return ['orders', 'planning', 'purchasing', 'manufacturing', 'inventory', 'crm', 'quality'].includes(
-      permissionKey
-    );
+
+    // Staff default
+    if (
+      ['orders', 'planning', 'purchasing', 'manufacturing', 'inventory', 'crm', 'quality', 'ana_panel'].includes(
+        permissionKey
+      )
+    ) {
+      return action === 'read' || action === 'create' || action === 'update';
+    }
+
+    return false;
   };
+
+  const can = hasPermission;
 
   const value: AuthContextType = {
     token,
@@ -175,7 +210,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isLoading,
     login,
     logout,
-    hasPermission
+    hasPermission,
+    can
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -184,7 +220,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth hook must be used within an AuthProvider');
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
+
+export default AuthContext;

@@ -61,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile = false,
   onCloseMobile
 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
 
   const userRoles = (user?.roles || []).map((r) => r.toLowerCase());
   const userRolesStr = userRoles.join(' ');
@@ -234,29 +234,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setOpenGroupId((prev) => (prev === groupId ? null : groupId));
   };
 
-  // ZERO-TRUST ROLE BASED FILTERING RULES:
-  // 1. Admin/Firma Sahibi: Sees all 8 headings.
-  // 2. Üretim Operatörü: Sees ONLY 'Üretim' and within it ONLY 'Koli / Palet Barkod' (and/or Terminal).
-  // 3. Muhasebe: Sees ONLY 'Finans' and 'Satış & B2B' (plus Ana Panel).
-  // 4. İnsan Kaynakları ve Ayarlar: Rendered ONLY for admin / firma sahibi.
+  // DYNAMIC ACL & ZERO-TRUST FILTERING:
+  // Shows only menu groups and sub-items for which the user holds 'read' permission.
   const filterGroupsByRole = (): MenuGroup[] => {
     if (isAdmin) {
       return menuGroups;
-    }
-
-    if (isOperator) {
-      // Üretim Operatörü: Sadece 'Üretim' başlığını ve 'Koli / Palet Barkod'u görür
-      return menuGroups
-        .filter((g) => g.id === 'manufacturing')
-        .map((g) => ({
-          ...g,
-          items: g.items.filter((it) => it.id === 'pallet_box_center')
-        }));
-    }
-
-    if (isMuhasebe) {
-      // Muhasebe: Sadece 'Finans' ve 'Satış & B2B'yi görür (+ Ana Panel)
-      return menuGroups.filter((g) => g.id === 'ana_panel_group' || g.id === 'finance' || g.id === 'sales_b2b');
     }
 
     if (isBayi) {
@@ -265,15 +247,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
         .filter((g) => g.id === 'sales_b2b')
         .map((g) => ({
           ...g,
-          items: g.items.filter((it) => it.id === 'b2b' || it.id === 'orders')
-        }));
+          items: g.items.filter((it) => (it.id === 'b2b' || it.id === 'orders') && hasPermission(it.id, 'read'))
+        }))
+        .filter((g) => g.items.length > 0);
     }
 
-    // Default staff fallback: filter based on permissions
-    return menuGroups.filter((g) => {
-      if (g.id === 'human_resources' || g.id === 'settings_group') return false;
-      return true;
-    });
+    // Dynamic filtering for all users based on 'read' permission
+    return menuGroups
+      .filter((g) => {
+        if (g.isDirectLink) {
+          return hasPermission(g.directViewId || 'ana_panel', 'read');
+        }
+        return true;
+      })
+      .map((g) => {
+        if (g.isDirectLink) return g;
+        const allowedItems = g.items.filter((it) => hasPermission(it.id, 'read'));
+        return {
+          ...g,
+          items: allowedItems
+        };
+      })
+      .filter((g) => g.isDirectLink || g.items.length > 0);
   };
 
   const visibleGroups = filterGroupsByRole();

@@ -62,7 +62,6 @@ const MainShell: React.FC = () => {
       userRolesStr.includes('operator')) &&
     !isAdmin;
 
-  const isMuhasebe = userRolesStr.includes('muhasebe') && !isAdmin;
   const isBayi =
     user?.role === 'customer' ||
     userRolesStr.includes('bayi') ||
@@ -119,47 +118,19 @@ const MainShell: React.FC = () => {
   const isViewAllowed = () => {
     if (isAdmin) return true;
 
-    // Strict Role Filtering
+    // Strict Role Filtering for B2B Customer
     if (isBayi) {
-      return currentView === 'b2b' || currentView === 'orders' || currentView === 'tracking';
-    }
-
-    if (isOperator) {
       return (
-        currentView === 'pallet_box_center' ||
-        currentView === 'factory_dashboard' ||
-        currentView === 'scanner' ||
-        currentView === 'packaging_station'
+        (currentView === 'b2b' || currentView === 'orders' || currentView === 'tracking') &&
+        hasPermission(currentView, 'read')
       );
     }
 
-    if (isMuhasebe) {
-      const allowedForMuhasebe = [
-        'ana_panel',
-        'main_dashboard',
-        'fin_invoices',
-        'fin_payments',
-        'fin_accounts',
-        'dashboard',
-        'orders',
-        'b2b',
-        'customers',
-        'logistics',
-        'manual_orders_planning'
-      ];
-      return allowedForMuhasebe.includes(currentView);
+    if (currentView === 'ana_panel' || currentView === 'main_dashboard') {
+      return hasPermission('ana_panel', 'read');
     }
 
-    // Default permission checks
-    const requiredPerm = viewPermissionMap[currentView];
-    if (!requiredPerm) return true;
-    if (currentView === 'b2b') {
-      return hasPermission('b2b_orders') || hasPermission('b2b_tracking') || hasPermission('b2b_statement');
-    }
-    if (currentView === 'orders') {
-      return hasPermission('orders') || hasPermission('b2b_orders');
-    }
-    return hasPermission(requiredPerm);
+    return hasPermission(currentView, 'read');
   };
 
   // Monitor network status for PWA offline resilience
@@ -352,7 +323,9 @@ const MainShell: React.FC = () => {
                 {(currentView === 'settings_users' ||
                   currentView === 'settings_permissions' ||
                   currentView === 'settings_system' ||
-                  currentView === 'user_management') && <UserManagement />}
+                  currentView === 'user_management') && (
+                  <UserManagement currentView={currentView} onNavigate={setCurrentView} />
+                )}
               </>
             )}
           </main>

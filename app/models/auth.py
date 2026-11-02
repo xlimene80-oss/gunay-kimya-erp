@@ -13,56 +13,158 @@ class UserRoleEnum(str, enum.Enum):
     STAFF = "staff"       # Şirket çalışanları / Operatörler
     CUSTOMER = "customer" # B2B Müşterileri (cari_id zorunlu)
 
-# Kullanım kolaylığı için alternatif alias
 UserType = UserRoleEnum
 
-DEFAULT_ADMIN_PERMISSIONS: Dict[str, bool] = {
-    "orders": True,
-    "planning": True,
-    "purchasing": True,
-    "manufacturing": True,
-    "inventory": True,
-    "crm": True,
-    "hr": True,
-    "users": True,
-    "accounting": True,
-    "quality": True,
-    "b2b_orders": True,
-    "b2b_tracking": True,
-    "b2b_statement": True,
-}
+MODULE_ACTIONS = ["read", "create", "update", "delete", "approve"]
 
-DEFAULT_STAFF_PERMISSIONS: Dict[str, bool] = {
-    "orders": True,
-    "planning": True,
-    "purchasing": True,
-    "manufacturing": True,
-    "inventory": True,
-    "crm": True,
-    "hr": False,
-    "users": False,
-    "accounting": False,
-    "quality": True,
-    "b2b_orders": False,
-    "b2b_tracking": False,
-    "b2b_statement": False,
-}
+ALL_MODULES = [
+    # 1. Ana Panel
+    {"id": "ana_panel", "name": "Ana Panel", "category": "Ana Panel"},
+    # 2. Satış & B2B
+    {"id": "orders", "name": "Siparişler", "category": "Satış & B2B"},
+    {"id": "b2b", "name": "B2B Bayi Siparişleri", "category": "Satış & B2B"},
+    {"id": "customers", "name": "Müşteriler", "category": "Satış & B2B"},
+    {"id": "logistics", "name": "Sevkiyat / İrsaliye", "category": "Satış & B2B"},
+    {"id": "manual_orders_planning", "name": "Fiyat Listeleri", "category": "Satış & B2B"},
+    # 3. Satın Alma
+    {"id": "suppliers", "name": "Tedarikçiler", "category": "Satın Alma"},
+    {"id": "purchasing_requests", "name": "Satın Alma Siparişleri", "category": "Satın Alma"},
+    {"id": "goods_receipt", "name": "Mal Kabul", "category": "Satın Alma"},
+    # 4. Stok & Depo
+    {"id": "products_raw_materials", "name": "Ürünler", "category": "Stok & Depo"},
+    {"id": "products_sds_warning", "name": "Hammaddeler", "category": "Stok & Depo"},
+    {"id": "inventory_stock", "name": "Stok Durumu", "category": "Stok & Depo"},
+    {"id": "warehouse_layout", "name": "Depo Hareketleri", "category": "Stok & Depo"},
+    {"id": "scanner", "name": "Sayım", "category": "Stok & Depo"},
+    # 5. Üretim
+    {"id": "factory_dashboard", "name": "Üretim Emirleri", "category": "Üretim"},
+    {"id": "bom_management", "name": "Reçeteler", "category": "Üretim"},
+    {"id": "pallet_box_center", "name": "Koli / Palet Barkod", "category": "Üretim"},
+    {"id": "traceability", "name": "Kalite & İzlenebilirlik", "category": "Üretim"},
+    # 6. Finans
+    {"id": "fin_invoices", "name": "Faturalar", "category": "Finans"},
+    {"id": "fin_payments", "name": "Tahsilat / Ödeme", "category": "Finans"},
+    {"id": "fin_accounts", "name": "Cari Hesaplar", "category": "Finans"},
+    {"id": "dashboard", "name": "Raporlar", "category": "Finans"},
+    # 7. İnsan Kaynakları
+    {"id": "hr_interviews", "name": "Personel", "category": "İnsan Kaynakları"},
+    {"id": "hr_leave", "name": "İzin", "category": "İnsan Kaynakları"},
+    {"id": "hr_attendance", "name": "Puantaj", "category": "İnsan Kaynakları"},
+    {"id": "reports_employee", "name": "Personel Raporları", "category": "İnsan Kaynakları"},
+    # 8. Ayarlar
+    {"id": "settings_users", "name": "Kullanıcılar", "category": "Ayarlar"},
+    {"id": "settings_permissions", "name": "Yetkiler", "category": "Ayarlar"},
+    {"id": "settings_system", "name": "Sistem", "category": "Ayarlar"}
+]
 
-DEFAULT_CUSTOMER_PERMISSIONS: Dict[str, bool] = {
-    "orders": False,
-    "planning": False,
-    "purchasing": False,
-    "manufacturing": False,
-    "inventory": False,
-    "crm": False,
-    "hr": False,
-    "users": False,
-    "accounting": False,
-    "quality": False,
-    "b2b_orders": True,
-    "b2b_tracking": True,
-    "b2b_statement": True,
-}
+def get_empty_permissions() -> Dict[str, Dict[str, bool]]:
+    """Returns a fresh dictionary with all modules and actions set to False."""
+    return {
+        m["id"]: {act: False for act in MODULE_ACTIONS}
+        for m in ALL_MODULES
+    }
+
+def get_admin_permissions() -> Dict[str, Dict[str, bool]]:
+    """Full permissions across all modules and actions."""
+    return {
+        m["id"]: {act: True for act in MODULE_ACTIONS}
+        for m in ALL_MODULES
+    }
+
+def get_customer_permissions() -> Dict[str, Dict[str, bool]]:
+    """Isolated B2B Customer permissions."""
+    perms = get_empty_permissions()
+    # B2B Bayi can read/create orders and view statement
+    for m in ["b2b", "orders"]:
+        perms[m] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
+    return perms
+
+def get_default_department_permissions(code: str) -> Dict[str, Dict[str, bool]]:
+    """Generates standard default permissions for base corporate departments."""
+    perms = get_empty_permissions()
+    c = code.upper().strip()
+
+    # Everyone internal can read Ana Panel
+    perms["ana_panel"]["read"] = True
+
+    if c in ["YONETIM", "ADMIN"]:
+        return get_admin_permissions()
+
+    elif c == "URETIM":
+        for m in ["factory_dashboard", "bom_management", "pallet_box_center", "traceability"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
+        for m in ["products_raw_materials", "products_sds_warning", "inventory_stock"]:
+            perms[m]["read"] = True
+
+    elif c == "SATIS":
+        for m in ["orders", "b2b", "customers", "logistics", "manual_orders_planning"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": False}
+        perms["reports_employee"] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
+        perms["inventory_stock"]["read"] = True
+
+    elif c == "SATINALMA":
+        for m in ["suppliers", "purchasing_requests", "goods_receipt"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
+        for m in ["products_raw_materials", "products_sds_warning", "inventory_stock"]:
+            perms[m]["read"] = True
+
+    elif c == "DEPO":
+        for m in ["products_raw_materials", "products_sds_warning", "inventory_stock", "warehouse_layout", "scanner", "goods_receipt", "pallet_box_center"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
+        perms["logistics"]["read"] = True
+
+    elif c == "MUHASEBE":
+        for m in ["fin_invoices", "fin_payments", "fin_accounts", "dashboard"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
+        for m in ["orders", "customers", "logistics", "purchasing_requests"]:
+            perms[m]["read"] = True
+
+    elif c == "IK":
+        for m in ["hr_interviews", "hr_leave", "hr_attendance", "reports_employee"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
+
+    elif c == "KALITE":
+        for m in ["traceability", "products_sds_warning"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
+        for m in ["factory_dashboard", "bom_management", "inventory_stock"]:
+            perms[m]["read"] = True
+
+    return perms
+
+
+class Department(Base, TimestampMixin):
+    """
+    Corporate department master entity with default permissions matrix.
+    """
+    __tablename__ = "auth_departments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
+    # Granular 5-column permissions: { "orders": { "read": True, "create": True, ... } }
+    permissions: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
+
+    # Relationships
+    users: Mapped[List["User"]] = relationship(
+        "User", 
+        back_populates="department",
+        lazy="selectin"
+    )
+
+    def get_effective_permissions(self) -> Dict[str, Dict[str, bool]]:
+        """Returns normalized 5-column permissions matrix for the department."""
+        base = get_default_department_permissions(self.code)
+        if self.permissions and isinstance(self.permissions, dict):
+            for mod_id, acts in self.permissions.items():
+                if mod_id in base and isinstance(acts, dict):
+                    base[mod_id].update(acts)
+                elif isinstance(acts, dict):
+                    base[mod_id] = acts
+        return base
+
 
 class User(Base, TimestampMixin):
     """
@@ -83,10 +185,14 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     cari_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cari_accounts.id", ondelete="SET NULL"), index=True, nullable=True)
 
-    # Dynamic ACL Permissions matrix: {"orders": true, "hr": false, ...}
+    # Department association
+    department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("auth_departments.id", ondelete="SET NULL"), index=True, nullable=True)
+
+    # User-specific permissions override matrix (overrides department defaults)
     permissions: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
 
     # Relationships
+    department: Mapped[Optional["Department"]] = relationship("Department", foreign_keys=[department_id], lazy="selectin", back_populates="users")
     cari: Mapped[Optional["CariAccount"]] = relationship("CariAccount", foreign_keys=[cari_id], lazy="selectin", back_populates="users")
     user_roles: Mapped[List["UserRole"]] = relationship(
         "UserRole", 
@@ -99,25 +205,50 @@ class User(Base, TimestampMixin):
     def roles(self) -> List["Role"]:
         return [ur.role for ur in self.user_roles if ur.role is not None]
 
-    def get_effective_permissions(self) -> Dict[str, bool]:
-        """Calculates dynamic effective permissions merging defaults with user-specific overrides."""
+    def get_effective_permissions(self) -> Dict[str, Dict[str, bool]]:
+        """
+        Calculates dynamic effective permissions:
+        1. If ADMIN: All modules & actions are True.
+        2. If CUSTOMER: Restricted B2B customer permissions.
+        3. If STAFF: Inherits Department permissions, overridden by user-specific permissions.
+        """
         if self.role == UserRoleEnum.ADMIN:
-            base = DEFAULT_ADMIN_PERMISSIONS.copy()
-        elif self.role == UserRoleEnum.CUSTOMER:
-            base = DEFAULT_CUSTOMER_PERMISSIONS.copy()
-        else:
-            base = DEFAULT_STAFF_PERMISSIONS.copy()
+            return get_admin_permissions()
 
+        if self.role == UserRoleEnum.CUSTOMER:
+            base = get_customer_permissions()
+        elif self.department:
+            base = self.department.get_effective_permissions()
+        else:
+            base = get_empty_permissions()
+            base["ana_panel"]["read"] = True
+
+        # Apply user-specific overrides
         if self.permissions and isinstance(self.permissions, dict):
-            base.update(self.permissions)
+            for mod_id, acts in self.permissions.items():
+                if isinstance(acts, dict):
+                    if mod_id not in base:
+                        base[mod_id] = {act: False for act in MODULE_ACTIONS}
+                    base[mod_id].update(acts)
+                elif isinstance(acts, bool):
+                    # Legacy flat boolean format support
+                    if mod_id not in base:
+                        base[mod_id] = {act: False for act in MODULE_ACTIONS}
+                    base[mod_id]["read"] = acts
+
         return base
 
-    def has_permission(self, permission_key: str) -> bool:
+    def has_permission(self, module_id: str, action: str = "read") -> bool:
         """Evaluates whether the user holds active permission for a module/operation."""
         if self.role == UserRoleEnum.ADMIN:
             return True
         perms = self.get_effective_permissions()
-        return bool(perms.get(permission_key, False))
+        mod_perms = perms.get(module_id)
+        if isinstance(mod_perms, dict):
+            return bool(mod_perms.get(action, False))
+        elif isinstance(mod_perms, bool):
+            return mod_perms
+        return False
 
 
 class Role(Base, TimestampMixin):
@@ -173,8 +304,7 @@ class UserRole(Base, TimestampMixin):
 
 class ModulePermission(Base, TimestampMixin):
     """
-    Granular RBAC privileges on ERP functional domains:
-    manufacturing, inventory, accounting, cari.
+    Granular RBAC privileges on ERP functional domains.
     """
     __tablename__ = "auth_module_permissions"
 
@@ -188,7 +318,7 @@ class ModulePermission(Base, TimestampMixin):
         String(50), 
         index=True, 
         nullable=False
-    )  # e.g., 'manufacturing', 'inventory', 'accounting', 'cari'
+    )
     can_read: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     can_write: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

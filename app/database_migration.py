@@ -1,11 +1,24 @@
 import os
 import sys
+import json
 import logging
-from sqlalchemy import text
+from sqlalchemy import text, select
 from app.core.config import engine
 from app.models import Base
+from app.models.auth import Department, User, UserRole, Role, get_default_department_permissions
 
 logger = logging.getLogger("migration")
+
+DEFAULT_DEPARTMENTS = [
+    {"name": "Yönetim", "code": "YONETIM", "description": "Şirket Yönetimi ve Genel Müdürlük"},
+    {"name": "Üretim", "code": "URETIM", "description": "Fabrika ve Kimyasal Üretim Sahası"},
+    {"name": "Satış", "code": "SATIS", "description": "Yurtiçi ve B2B Bayi Satış Operasyonları"},
+    {"name": "Satın Alma", "code": "SATINALMA", "description": "Hammadde ve Ambalaj Tedarik"},
+    {"name": "Depo", "code": "DEPO", "description": "Hammadde, Mamul ve Lojistik Deposu"},
+    {"name": "Muhasebe", "code": "MUHASEBE", "description": "Mali İşler, Finans ve Fatura Yönetimi"},
+    {"name": "İK", "code": "IK", "description": "İnsan Kaynakları, Personel ve Puantaj"},
+    {"name": "Kalite", "code": "KALITE", "description": "Kalite Kontrol, Analiz ve Ar-Ge Laboratuvarı"}
+]
 
 async def run_all_migrations():
     """
@@ -66,14 +79,14 @@ async def run_all_migrations():
                 ("total_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
             ]
 
-            # 6. Columns for auth_users (Role management & Dynamic ACL Permissions)
+            # 6. Columns for auth_users (Role management, Department link & Dynamic ACL Permissions)
             user_cols = [
                 ("role", "VARCHAR(30) DEFAULT 'staff'", "VARCHAR(30) DEFAULT 'staff'"),
                 ("permissions", "JSON DEFAULT '{}'", "TEXT DEFAULT '{}'"),
+                ("department_id", "INTEGER REFERENCES auth_departments(id)", "INTEGER REFERENCES auth_departments(id)"),
             ]
 
             if is_sqlite:
-                # SQLite PRAGMA check
                 res_users = await conn.execute(text("PRAGMA table_info(auth_users)"))
                 existing_user_cols = [r[1] for r in res_users.fetchall()]
                 for col_name, _, sqlite_def in user_cols:
@@ -109,7 +122,6 @@ async def run_all_migrations():
                         await conn.execute(text(f"ALTER TABLE mfg_production_ingredient_consumptions ADD COLUMN {col_name} {sqlite_def}"))
                         print(f"[MIGRATION SUCCESS] Added column 'mfg_production_ingredient_consumptions.{col_name}' (SQLite).")
             else:
-                # PostgreSQL safe ADD COLUMN IF NOT EXISTS
                 for col_name, pg_def, _ in user_cols:
                     try:
                         await conn.execute(text(f"ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS {col_name} {pg_def}"))
@@ -140,10 +152,57 @@ async def run_all_migrations():
                     except Exception as col_err:
                         logger.warning(f"[MIGRATION NOTICE] mfg_production_ingredient_consumptions.{col_name}: {col_err}")
 
+        # 7. Seed Default Departments if empty and associate users
+        from app.core.config import async_session_factory
+        async with async_session_factory() as session:
+            dept_count = await session.scalar(select(func.count(Department.id))) if 'func' in globals() else None
+            # Fetch existing departments
+            existing_depts = (await session.scalars(select(Department))).all()
+            existing_codes = {d.code.upper(): d for d in existing_depts}
+
+            for d_info in DEFAULT_DEPARTMENTS:
+                code_up = d_info["code"].upper()
+                if code_up not in existing_codes:
+                    default_perms = get_default_department_permissions(code_up)
+                    new_dept = Department(
+                        name=d_info["name"],
+                        code=code_up,
+                        description=d_info["description"],
+                        is_active=True,
+                        permissions=default_perms
+                    )
+                    session.add(new_dept)
+                    await session.flush()
+                    existing_codes[code_up] = new_dept
+                    print(f"[MIGRATION SUCCESS] Seeded default department '{d_info['name']}' ({code_up}).")
+
+            # Associate unassigned users to matching departments based on their roles
+            users_without_dept = (await session.scalars(select(User).where(User.department_id.is_(None)))).all()
+            for u in users_without_dept:
+                role_names = [ur.role.role_name.upper() for ur in u.user_roles if ur.role]
+                matched_dept = None
+                if any("ADMIN" in r for r in role_names):
+                    matched_dept = existing_codes.get("YONETIM")
+                elif any("MUHASEBE" in r for r in role_names):
+                    matched_dept = existing_codes.get("MUHASEBE")
+                elif any("DEPO" in r for r in role_names):
+                    matched_dept = existing_codes.get("DEPO")
+                elif any("URETIM" in r or "FABRIKA" in r for r in role_names):
+                    matched_dept = existing_codes.get("URETIM")
+                elif any("KALITE" in r for r in role_names):
+                    matched_dept = existing_codes.get("KALITE")
+                elif any("SATIS" in r for r in role_names):
+                    matched_dept = existing_codes.get("SATIS")
+
+                if matched_dept:
+                    u.department_id = matched_dept.id
+                    print(f"[MIGRATION INFO] Associated user '{u.email}' to department '{matched_dept.name}'.")
+
+            await session.commit()
+
         print("[MIGRATION SUCCESS] All database schema migrations verified successfully without data loss.")
         logger.info("[MIGRATION SUCCESS] All database schema migrations verified successfully.")
     except Exception as e:
         error_msg = f"[MIGRATION ERROR] Database migration encountered an error: {str(e)}"
         print(error_msg)
         logger.error(error_msg, exc_info=True)
-        # Note: Do not raise to prevent crashing entire API if a non-critical schema check fails
