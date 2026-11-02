@@ -1,6 +1,6 @@
 import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -119,6 +119,7 @@ async def register_user(
 @router.post("/login", response_model=Token)
 async def login(
     payload: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -198,6 +199,7 @@ async def login(
     roles_list = [r.role_name for r in user.roles]
     effective_perms = user.get_effective_permissions()
     expires = datetime.timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    ua_header = request.headers.get("user-agent", "")
     token = create_access_token(
         data={
             "sub": user.email,
@@ -207,7 +209,8 @@ async def login(
             "user_role": user.role.value,
             "permissions": effective_perms
         },
-        expires_delta=expires
+        expires_delta=expires,
+        user_agent=ua_header
     )
 
     return Token(

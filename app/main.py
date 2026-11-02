@@ -1,6 +1,7 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings, engine
 from app.models import Base
@@ -122,6 +123,59 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def security_and_license_middleware(request: Request, call_next):
+    """
+    ZERO-TRUST SYSTEM PROTECTION MIDDLEWARE:
+    1. Domain & License Lock: Prevents unauthorized deployment or code execution outside whitelisted domains.
+    2. Anti-Scraping Rate Limiter: Blocks automated data mining and scrapes on API endpoints (admin included).
+    """
+    path = request.url.path
+
+    # Bypass static/health check endpoints
+    if path == "/health" or not (path.startswith("/api") or path.startswith("/b2b")):
+        return await call_next(request)
+
+    # 1. Domain & License Lock (Anti-Exfiltration)
+    if os.getenv("TESTING") != "1":
+        raw_host = request.headers.get("host", "").lower().split(":")[0]
+        raw_origin = request.headers.get("origin", "").lower()
+        origin_host = raw_origin.split("://")[-1].split(":")[0] if "://" in raw_origin else ""
+
+        allowed_patterns = ["localhost", "127.0.0.1", "0.0.0.0", "onrender.com", "gunaykimya.com"]
+        extra_hosts = os.getenv("ALLOWED_HOSTS", "").split(",")
+        for eh in extra_hosts:
+            if eh.strip():
+                allowed_patterns.append(eh.strip().lower())
+
+        def is_host_allowed(h: str) -> bool:
+            if not h:
+                return True
+            return any(pat in h or h.endswith(pat) for pat in allowed_patterns)
+
+        if not is_host_allowed(raw_host) or (origin_host and not is_host_allowed(origin_host)):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "Lisans Geçersiz: Bu yazılım yetkisiz bir alan adı veya sunucuda çalıştırılamaz. Yalnızca lisanslı Günay Kimya altyapısında geçerlidir."
+                }
+            )
+
+    # 2. Anti-Scraping Rate Limiting (Skip for preflight OPTIONS and test runners)
+    if os.getenv("TESTING") != "1" and request.method != "OPTIONS":
+        try:
+            from app.core.anti_scraping import enforce_anti_scraping
+            await enforce_anti_scraping(request)
+        except HTTPException as he:
+            return JSONResponse(
+                status_code=he.status_code,
+                content={"detail": he.detail}
+            )
+        except Exception:
+            pass
+
+    return await call_next(request)
 
 # Mount all domain routers under /api/v1 and alias /api
 app.include_router(api_router, prefix=settings.API_V1_STR)

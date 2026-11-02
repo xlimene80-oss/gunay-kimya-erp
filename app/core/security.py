@@ -1,7 +1,7 @@
 import datetime
 import hashlib
 from typing import Optional, List, Callable
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -43,22 +43,30 @@ from app.schemas.auth import TokenData
 
 security_scheme = HTTPBearer(auto_error=False)
 
-def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] = None) -> str:
-    """Create a signed JWT access token with user claims and expiration."""
+def create_access_token(
+    data: dict,
+    expires_delta: Optional[datetime.timedelta] = None,
+    user_agent: Optional[str] = None
+) -> str:
+    """Create a signed JWT access token with user claims, expiration, and optional device/UA fingerprint."""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.datetime.now(datetime.timezone.utc) + expires_delta
     else:
         expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
+    if user_agent:
+        ua_hash = hashlib.sha256(user_agent.strip().encode("utf-8")).hexdigest()[:16]
+        to_encode["ua_hash"] = ua_hash
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
 async def get_current_user(
+    request: Request = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> User:
-    """Extract and validate the active user from the JWT Bearer token."""
+    """Extract and validate the active user from the JWT Bearer token, verifying device fingerprint."""
     if not credentials or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -76,8 +84,21 @@ async def get_current_user(
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email: Optional[str] = payload.get("sub")
         user_id: Optional[int] = payload.get("user_id")
+        token_ua_hash: Optional[str] = payload.get("ua_hash")
         if email is None and user_id is None:
             raise credentials_exception
+
+        # Device/Browser fingerprint validation (Zero-Trust)
+        if token_ua_hash and request:
+            req_ua = request.headers.get("user-agent", "").strip()
+            if req_ua:
+                calc_hash = hashlib.sha256(req_ua.encode("utf-8")).hexdigest()[:16]
+                if calc_hash != token_ua_hash:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Güvenlik Uyarısı: Oturum belirteci farklı bir tarayıcı/cihaza kopyalandığı için iptal edildi (User-Agent Parmak İzi Uyuşmazlığı).",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
     except JWTError:
         raise credentials_exception
 
@@ -101,6 +122,7 @@ async def get_current_user(
     return user
 
 async def get_optional_current_user(
+    request: Request = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:

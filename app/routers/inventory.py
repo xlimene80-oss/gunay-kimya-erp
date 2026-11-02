@@ -18,6 +18,9 @@ from app.models.inventory import (
     BarcodeUnit, BarcodeType, BarcodeStatus
 )
 from app.models.cari import CariAccount
+from app.models.auth import User
+from app.core.security import get_optional_current_user
+from app.core.anti_scraping import check_export_quota, MAX_EXPORT_ROWS_PER_REQUEST
 from app.models.manufacturing import ProductionOrder
 from app.models.hazmat import WarehouseBin, WarehouseZone, WarehousePlacementAudit
 from app.core.events import trigger_dispatch_shipped_event
@@ -1068,10 +1071,20 @@ async def list_dispatch_orders(
 
 @router.get("/inventory/dispatch/export/csv")
 async def export_dispatches_csv(
+    limit: int = Query(200, ge=1, le=200, description="Sayfalı export satır sayısı (maksimum 200 satır)"),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Export all dispatches and waybills as UTF-8 CSV with BOM for Excel."""
+    """
+    Export dispatches and waybills as UTF-8 CSV with BOM for Excel.
+    Strictly enforced with Controlled Export Quotas (max 200 rows, daily user limits; Admin included).
+    """
     from fastapi.responses import Response
+
+    effective_limit = min(limit, MAX_EXPORT_ROWS_PER_REQUEST)
+    if current_user:
+        effective_limit = check_export_quota(current_user, effective_limit)
+
     stmt = (
         select(DispatchOrder)
         .options(
@@ -1079,6 +1092,7 @@ async def export_dispatches_csv(
             selectinload(DispatchOrder.cari)
         )
         .order_by(DispatchOrder.id.desc())
+        .limit(effective_limit)
     )
     orders = (await db.scalars(stmt)).all()
     

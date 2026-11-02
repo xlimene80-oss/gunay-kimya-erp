@@ -1,10 +1,66 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import JavaScriptObfuscator from 'javascript-obfuscator';
+
+function obfuscatePlugin() {
+  return {
+    name: 'vite-plugin-javascript-obfuscator',
+    apply: 'build' as const,
+    enforce: 'post' as const,
+    renderChunk(code: string, chunk: { fileName: string }) {
+      if (
+        chunk.fileName.includes('sw') ||
+        chunk.fileName.includes('workbox') ||
+        !chunk.fileName.endsWith('.js')
+      ) {
+        return null;
+      }
+      try {
+        const obfuscated = JavaScriptObfuscator.obfuscate(code, {
+          compact: true,
+          controlFlowFlattening: false,
+          deadCodeInjection: false,
+          debugProtection: false,
+          disableConsoleOutput: false,
+          identifierNamesGenerator: 'hexadecimal',
+          log: false,
+          numbersToExpressions: false,
+          renameGlobals: false,
+          selfDefending: false,
+          simplify: true,
+          splitStrings: false,
+          stringArray: true,
+          stringArrayCallsTransform: true,
+          stringArrayEncoding: ['base64'],
+          stringArrayIndexShift: true,
+          stringArrayRotate: true,
+          stringArrayShuffle: true,
+          stringArrayWrappersCount: 1,
+          stringArrayWrappersType: 'variable',
+          stringArrayThreshold: 0.75,
+          unicodeEscapeSequence: false,
+        });
+        return {
+          code: obfuscated.getObfuscatedCode(),
+          map: null,
+        };
+      } catch (e) {
+        console.warn(`[Obfuscator] Skipped ${chunk.fileName}:`, e);
+        return null;
+      }
+    },
+  };
+}
 
 export default defineConfig({
+  build: {
+    sourcemap: false,
+    chunkSizeWarningLimit: 1500,
+  },
   plugins: [
     react(),
+    obfuscatePlugin(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',

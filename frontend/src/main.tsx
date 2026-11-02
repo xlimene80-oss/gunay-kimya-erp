@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client';
 import axios from 'axios';
 import App from './App';
 import './index.css';
+import { initBrowserShield } from './security/browserShield';
+
+// Initialize Zero-Trust Client Protection (Anti-DevTools, Hotkey Interception, Domain Lock)
+initBrowserShield();
 
 // Configure Axios baseURL from VITE_API_URL (used on production Render deployment)
 // If VITE_API_URL is undefined or empty, automatically detect if running on Render domain
