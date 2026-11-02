@@ -66,9 +66,10 @@ async def run_all_migrations():
                 ("total_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
             ]
 
-            # 6. Columns for auth_users (Role management & B2B segregation)
+            # 6. Columns for auth_users (Role management & Dynamic ACL Permissions)
             user_cols = [
                 ("role", "VARCHAR(30) DEFAULT 'staff'", "VARCHAR(30) DEFAULT 'staff'"),
+                ("permissions", "JSON DEFAULT '{}'", "TEXT DEFAULT '{}'"),
             ]
 
             if is_sqlite:

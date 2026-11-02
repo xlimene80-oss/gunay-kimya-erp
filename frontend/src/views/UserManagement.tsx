@@ -18,7 +18,9 @@ import {
   Mail,
   UserCheck,
   UserX,
-  Check
+  Check,
+  Sliders,
+  ShieldCheck
 } from 'lucide-react';
 
 interface UserRecord {
@@ -32,6 +34,8 @@ interface UserRecord {
   cari_code?: string | null;
   roles: string[];
   created_at: string;
+  permissions?: Record<string, boolean>;
+  effective_permissions?: Record<string, boolean>;
 }
 
 interface CariOption {
@@ -50,12 +54,20 @@ export const UserManagement: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
-  // Modal State
+  // Modal State - User Create
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [modalMode, setModalMode] = useState<'STAFF' | 'CUSTOMER'>('STAFF');
   const [saving, setSaving] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  // Modal State - ACL Permissions
+  const [isPermsModalOpen, setIsPermsModalOpen] = useState<boolean>(false);
+  const [permsUser, setPermsUser] = useState<UserRecord | null>(null);
+  const [userPerms, setUserPerms] = useState<Record<string, boolean>>({});
+  const [permsSaving, setPermsSaving] = useState<boolean>(false);
+  const [permsError, setPermsError] = useState<string | null>(null);
+  const [permsSuccess, setPermsSuccess] = useState<string | null>(null);
 
   // Form Fields - Staff
   const [staffName, setStaffName] = useState<string>('');
@@ -197,6 +209,47 @@ export const UserManagement: React.FC = () => {
       } finally {
         setSaving(false);
       }
+    }
+  };
+
+  const openPermissionsModal = (user: UserRecord) => {
+    setPermsUser(user);
+    setPermsError(null);
+    setPermsSuccess(null);
+    const initialPerms = { ...(user.effective_permissions || user.permissions || {}) };
+    setUserPerms(initialPerms);
+    setIsPermsModalOpen(true);
+  };
+
+  const handleSavePermissions = async () => {
+    if (!permsUser) return;
+    setPermsSaving(true);
+    setPermsError(null);
+    setPermsSuccess(null);
+    try {
+      const res = await axios.patch(`/api/v1/auth/users/${permsUser.id}/permissions`, {
+        permissions: userPerms
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === permsUser.id
+            ? {
+                ...u,
+                permissions: res.data.permissions,
+                effective_permissions: res.data.effective_permissions
+              }
+            : u
+        )
+      );
+      setPermsSuccess('Yetkiler başarıyla güncellendi.');
+      setTimeout(() => {
+        setIsPermsModalOpen(false);
+        setPermsSuccess(null);
+      }, 700);
+    } catch (err: any) {
+      setPermsError(err.response?.data?.detail || 'Yetkiler güncellenirken hata oluştu.');
+    } finally {
+      setPermsSaving(false);
     }
   };
 
@@ -491,18 +544,29 @@ export const UserManagement: React.FC = () => {
                     </td>
 
                     <td className="px-5 py-4 text-right">
-                      <button
-                        onClick={() => handleToggleStatus(user)}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border transition ${
-                          user.is_active
-                            ? 'border-danger/30 text-danger hover:bg-danger/10'
-                            : 'border-emerald-500/30 text-emerald-600 hover:bg-emerald-50'
-                        }`}
-                        title={user.is_active ? 'Hesabı Dondur' : 'Hesabı Aktifleştir'}
-                      >
-                        <Power className="w-3.5 h-3.5" />
-                        <span>{user.is_active ? 'Dondur' : 'Aktif Et'}</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => openPermissionsModal(user)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border border-[#302480]/30 text-[#302480] dark:text-[#a094eb] hover:bg-[#302480]/10 transition shadow-sm"
+                          title="Yetki Matrisini Düzenle"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>Yetkiler</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleToggleStatus(user)}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border transition ${
+                            user.is_active
+                              ? 'border-danger/30 text-danger hover:bg-danger/10'
+                              : 'border-emerald-500/30 text-emerald-600 hover:bg-emerald-50'
+                          }`}
+                          title={user.is_active ? 'Hesabı Dondur' : 'Hesabı Aktifleştir'}
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                          <span>{user.is_active ? 'Dondur' : 'Aktif Et'}</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -777,6 +841,254 @@ export const UserManagement: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DYNAMIC PERMISSIONS MATRIX MODAL (ACL) */}
+      {isPermsModalOpen && permsUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-surface rounded-2xl border border-border shadow-xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-border flex items-center justify-between bg-bg">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-[#302480]/10 text-[#302480] rounded-lg">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-text">Yetki Düzenleme Matrisi (ACL)</h3>
+                  <p className="text-xs text-text-muted">
+                    {permsUser.full_name} ({permsUser.email})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPermsModalOpen(false)}
+                className="p-1.5 rounded-lg text-text-muted hover:text-text hover:bg-surface transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {permsError && (
+                <div className="p-3 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs font-medium flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{permsError}</span>
+                </div>
+              )}
+              {permsSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-500/30 text-emerald-700 text-xs font-medium flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <span>{permsSuccess}</span>
+                </div>
+              )}
+
+              {/* User Summary Pill */}
+              <div className="p-3 bg-bg rounded-xl border border-border flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-text-muted">Hesap Tipi:</span>
+                  <span className="ml-1.5 text-xs font-bold text-text">
+                    {permsUser.role === 'admin'
+                      ? 'Yönetici (Admin)'
+                      : permsUser.role === 'customer'
+                      ? `B2B Müşteri (${permsUser.cari_title || 'Cari Bağlı'})`
+                      : 'Şirket Personeli'}
+                  </span>
+                </div>
+                {permsUser.role === 'admin' && (
+                  <span className="text-[11px] font-semibold text-purple-700 bg-purple-100 dark:bg-purple-950/60 px-2 py-0.5 rounded-md">
+                    Tam Yönetici Yetkisi
+                  </span>
+                )}
+              </div>
+
+              {/* Switches based on Role */}
+              <div className="space-y-2.5">
+                {permsUser.role === 'customer' ? (
+                  /* B2B MÜŞTERİ YETKİLERİ */
+                  <>
+                    <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-1">
+                      B2B Portal Yetkileri
+                    </div>
+
+                    {[
+                      {
+                        key: 'b2b_orders',
+                        label: 'Sipariş Verme (Yeni Sipariş)',
+                        desc: 'Müşterinin B2B portalından doğrudan yeni sipariş oluşturup fabrikaya iletmesi.'
+                      },
+                      {
+                        key: 'b2b_tracking',
+                        label: 'Sipariş Takip & Fazlar',
+                        desc: 'Geçmiş ve mevcut siparişlerin onay, üretim ve sevkiyat durumlarını izlemesi.'
+                      },
+                      {
+                        key: 'b2b_statement',
+                        label: 'Cari Ekstre & Bakiye Görme',
+                        desc: 'Anlık borç/alacak bakiyesi, risk limiti ve cari hesap ekstresini görüntülemesi.'
+                      }
+                    ].map((item) => {
+                      const isEnabled = userPerms[item.key] ?? true;
+                      return (
+                        <div
+                          key={item.key}
+                          className="flex items-center justify-between p-3 rounded-xl border border-border bg-bg/60 hover:bg-bg transition"
+                        >
+                          <div className="pr-4">
+                            <div className="text-xs font-bold text-text">{item.label}</div>
+                            <div className="text-[11px] text-text-muted mt-0.5">{item.desc}</div>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={isEnabled}
+                            onClick={() =>
+                              setUserPerms((prev) => ({
+                                ...prev,
+                                [item.key]: !isEnabled
+                              }))
+                            }
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
+                              isEnabled ? 'bg-emerald-600' : 'bg-gray-300 dark:bg-gray-700'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
+                                isEnabled ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </>
+                ) : (
+                  /* ŞİRKET İÇİ PERSONEL YETKİLERİ */
+                  <>
+                    <div className="text-xs font-bold text-[#302480] dark:text-[#a094eb] uppercase tracking-wider mb-1">
+                      Şirket İçi Modül Erişim Yetkileri
+                    </div>
+
+                    {[
+                      {
+                        key: 'orders',
+                        label: 'Sipariş Giriş & Katalog',
+                        desc: 'Yeni sipariş girişi, ürün kataloğu ve sipariş listeleme.'
+                      },
+                      {
+                        key: 'planning',
+                        label: 'Planlama / Sevkiyat',
+                        desc: 'Üretim planlama takvimi, Kanban panosu ve irsaliye/lojistik takibi.'
+                      },
+                      {
+                        key: 'purchasing',
+                        label: 'Satınalma & İç Talep',
+                        desc: 'Hammadde satınalma talepleri, WhatsApp/Mail RFQ yönlendirmeleri.'
+                      },
+                      {
+                        key: 'manufacturing',
+                        label: 'Üretim & Reçete (BOM)',
+                        desc: 'Canlı faz takibi, reçete tasarımı ve iş emirleri.'
+                      },
+                      {
+                        key: 'inventory',
+                        label: 'Stok / Depo & El Terminali',
+                        desc: 'Malzeme stokları, depo yerleşimi, palet/koli ve barkod terminali.'
+                      },
+                      {
+                        key: 'crm',
+                        label: 'Satış & CRM (Müşteriler)',
+                        desc: 'Müşteri profilleri, cari bakiyeler ve ziyaret/CRM notları.'
+                      },
+                      {
+                        key: 'hr',
+                        label: 'İnsan Kaynakları & Mülakat',
+                        desc: 'Aday listesi, işe alım mülakat aşamaları ve değerlendirme kararları.'
+                      },
+                      {
+                        key: 'users',
+                        label: 'Kullanıcı Yönetimi (Admin)',
+                        desc: 'Yeni personel veya müşteri tanımlama ve yetki matrisini düzenleme.'
+                      },
+                      {
+                        key: 'accounting',
+                        label: 'Finansal Genel Bakış',
+                        desc: 'Üst düzey finansal göstergeler ve muhasebe raporları.'
+                      },
+                      {
+                        key: 'quality',
+                        label: 'Kalite Kontrol & Laboratuvar (CoA)',
+                        desc: 'Girdi/çıktı kalite testleri, CoA sertifikaları ve izlenebilirlik.'
+                      }
+                    ].map((item) => {
+                      const isEnabled = userPerms[item.key] ?? false;
+                      return (
+                        <div
+                          key={item.key}
+                          className="flex items-center justify-between p-3 rounded-xl border border-border bg-bg/60 hover:bg-bg transition"
+                        >
+                          <div className="pr-4">
+                            <div className="text-xs font-bold text-text">{item.label}</div>
+                            <div className="text-[11px] text-text-muted mt-0.5">{item.desc}</div>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={isEnabled}
+                            onClick={() =>
+                              setUserPerms((prev) => ({
+                                ...prev,
+                                [item.key]: !isEnabled
+                              }))
+                            }
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#302480]/30 ${
+                              isEnabled ? 'bg-[#302480]' : 'bg-gray-300 dark:bg-gray-700'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
+                                isEnabled ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-border flex items-center justify-end gap-2 bg-bg">
+              <button
+                type="button"
+                onClick={() => setIsPermsModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-text-muted hover:text-text rounded-xl border border-border hover:bg-surface-hover transition"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={permsSaving}
+                onClick={handleSavePermissions}
+                className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white rounded-xl bg-[#302480] hover:bg-[#241a63] transition shadow-sm active:scale-[0.98]"
+              >
+                {permsSaving ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Güncelleniyor...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Yetkileri Kaydet</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

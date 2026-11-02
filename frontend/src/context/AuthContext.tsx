@@ -11,6 +11,8 @@ export interface UserProfile {
   cari_title?: string;
   cari_code?: string;
   role?: string;
+  permissions?: Record<string, boolean>;
+  effective_permissions?: Record<string, boolean>;
 }
 
 interface AuthContextType {
@@ -20,6 +22,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  hasPermission: (permissionKey: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -118,6 +121,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           is_active: true,
           cari_id: payload?.cari_id,
           role: payload?.user_role,
+          effective_permissions: payload?.permissions,
+          permissions: payload?.permissions
         });
       }
     } catch (error: any) {
@@ -135,6 +140,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     delete axios.defaults.headers.common['Authorization'];
   };
 
+  const hasPermission = (permissionKey: string): boolean => {
+    if (!user) return false;
+    const roleLower = (user.role || '').toLowerCase();
+    const rolesStr = (user.roles || []).join(' ').toLowerCase();
+    if (
+      roleLower === 'admin' ||
+      rolesStr.includes('admin') ||
+      rolesStr.includes('yönetici') ||
+      rolesStr.includes('yonetici')
+    ) {
+      return true;
+    }
+    if (user.effective_permissions && typeof user.effective_permissions[permissionKey] === 'boolean') {
+      return user.effective_permissions[permissionKey];
+    }
+    if (user.permissions && typeof user.permissions[permissionKey] === 'boolean') {
+      return user.permissions[permissionKey];
+    }
+    // Default fallback based on role if no explicit permission set
+    if (roleLower === 'customer' || rolesStr.includes('customer') || rolesStr.includes('bayi')) {
+      return ['b2b_orders', 'b2b_tracking', 'b2b_statement'].includes(permissionKey);
+    }
+    // Staff standard
+    return ['orders', 'planning', 'purchasing', 'manufacturing', 'inventory', 'crm', 'quality'].includes(
+      permissionKey
+    );
+  };
+
   const value: AuthContextType = {
     token,
     user,
@@ -142,6 +175,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isLoading,
     login,
     logout,
+    hasPermission
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

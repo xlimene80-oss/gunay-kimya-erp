@@ -4,7 +4,8 @@ import {
   FileCheck2,
   PackageCheck,
   ScanBarcode,
-  WifiOff
+  WifiOff,
+  ShieldAlert
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Login } from './views/Login';
@@ -38,10 +39,51 @@ import { Navbar } from './components/Navbar';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 
 const MainShell: React.FC = () => {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, hasPermission } = useAuth();
   const [currentView, setCurrentView] = useState<string>('factory_dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+
+  const viewPermissionMap: Record<string, string> = {
+    factory_dashboard: 'manufacturing',
+    bom_management: 'manufacturing',
+    packaging_station: 'manufacturing',
+    inventory_stock: 'inventory',
+    products_raw_materials: 'inventory',
+    products_sds_warning: 'inventory',
+    warehouse_layout: 'inventory',
+    pallet_box_center: 'inventory',
+    scanner: 'inventory',
+    goods_receipt: 'purchasing',
+    suppliers: 'purchasing',
+    purchasing_requests: 'purchasing',
+    manual_orders_planning: 'planning',
+    orders: 'orders',
+    customers: 'crm',
+    tracking: 'b2b_tracking',
+    logistics: 'planning',
+    dashboard: 'accounting',
+    reports_employee: 'crm',
+    hr_interviews: 'hr',
+    quality_pending: 'quality',
+    quality_templates: 'quality',
+    quality_coas: 'quality',
+    traceability: 'quality',
+    user_management: 'users'
+  };
+
+  const isViewAllowed = () => {
+    const requiredPerm = viewPermissionMap[currentView];
+    if (!requiredPerm) return true;
+    if (user?.role === 'admin' || user?.roles?.some((r) => r.toLowerCase().includes('admin'))) return true;
+    if (currentView === 'b2b') {
+      return hasPermission('b2b_orders') || hasPermission('b2b_tracking') || hasPermission('b2b_statement');
+    }
+    if (currentView === 'orders') {
+      return hasPermission('orders') || hasPermission('b2b_orders');
+    }
+    return hasPermission(requiredPerm);
+  };
 
   // Monitor network status for PWA offline resilience
   useEffect(() => {
@@ -176,49 +218,71 @@ const MainShell: React.FC = () => {
           </div>
 
           <main className="p-4 md:p-8 max-w-7xl w-full mx-auto pb-28 md:pb-8 print:p-0 print:m-0 print:max-w-none">
-            {/* 1. ÜRETİM YÖNETİMİ */}
-            {currentView === 'factory_dashboard' && <FactoryDashboard onNavigate={setCurrentView} />}
-            {currentView === 'bom_management' && <BomManagement />}
-            {currentView === 'packaging_station' && <PackagingStation />}
+            {!isViewAllowed() ? (
+              <div className="p-8 text-center bg-surface rounded-2xl border border-border shadow-sm max-w-xl mx-auto my-12 animate-fade-in">
+                <div className="p-3 bg-danger/10 text-danger rounded-xl inline-flex mb-3">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h2 className="text-lg font-bold text-text">Erişim Engellendi (Yetki Yetersiz)</h2>
+                <p className="text-sm text-text-muted mt-2">
+                  Bu modülü görüntülemek için gerekli olan <strong className="text-text font-mono">'{viewPermissionMap[currentView] || currentView}'</strong> yetkisine sahip değilsiniz. Lütfen fabrika yöneticinizle iletişime geçiniz.
+                </p>
+                <div className="mt-5">
+                  <button
+                    onClick={() => setCurrentView(user?.role === 'customer' ? 'b2b' : 'factory_dashboard')}
+                    className="px-5 py-2.5 bg-[#302480] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition"
+                  >
+                    Ana Ekrana Dön
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* 1. ÜRETİM YÖNETİMİ */}
+                {currentView === 'factory_dashboard' && <FactoryDashboard onNavigate={setCurrentView} />}
+                {currentView === 'bom_management' && <BomManagement />}
+                {currentView === 'packaging_station' && <PackagingStation />}
 
-            {/* 2. STOK & LOJİSTİK */}
-            {currentView === 'inventory_stock' && <StockManagement />}
-            {currentView === 'products_raw_materials' && <ProductsManagement />}
-            {currentView === 'products_sds_warning' && <ProductsManagement initialFilter="SDS_WARNING" />}
-            {currentView === 'warehouse_layout' && <WarehouseLayout />}
-            {currentView === 'pallet_box_center' && <BarcodeCenter />}
-            {currentView === 'scanner' && <TerminalScanner onNavigate={setCurrentView} />}
+                {/* 2. STOK & LOJİSTİK */}
+                {currentView === 'inventory_stock' && <StockManagement />}
+                {currentView === 'products_raw_materials' && <ProductsManagement />}
+                {currentView === 'products_sds_warning' && <ProductsManagement initialFilter="SDS_WARNING" />}
+                {currentView === 'warehouse_layout' && <WarehouseLayout />}
+                {currentView === 'pallet_box_center' && <BarcodeCenter />}
+                {currentView === 'scanner' && <TerminalScanner onNavigate={setCurrentView} />}
 
-            {/* 3. SATIN ALMA */}
-            {currentView === 'goods_receipt' && <GoodsReceiptManagement />}
-            {currentView === 'suppliers' && <SuppliersManagement />}
-            {currentView === 'purchasing_requests' && <PurchasingManagement />}
+                {/* 3. SATIN ALMA */}
+                {currentView === 'goods_receipt' && <GoodsReceiptManagement />}
+                {currentView === 'suppliers' && <SuppliersManagement />}
+                {currentView === 'purchasing_requests' && <PurchasingManagement />}
 
-            {/* 4. SATIŞ & SEVKİYAT & B2B */}
-            {currentView === 'b2b' && <B2BDashboard />}
-            {currentView === 'orders' && <Orders />}
-            {currentView === 'manual_orders_planning' && <ManualOrdersPlanning />}
-            {currentView === 'customers' && <CustomersManagement />}
-            {currentView === 'tracking' && <SiparisVeSevkiyatTakip />}
-            {currentView === 'logistics' && <Logistics />}
+                {/* 4. SATIŞ & SEVKİYAT & B2B */}
+                {currentView === 'b2b' && <B2BDashboard />}
+                {currentView === 'orders' && <Orders />}
+                {currentView === 'manual_orders_planning' && <ManualOrdersPlanning />}
+                {currentView === 'customers' && <CustomersManagement />}
+                {currentView === 'tracking' && <SiparisVeSevkiyatTakip />}
+                {currentView === 'logistics' && <Logistics />}
 
-            {/* 5. FİNANSAL YÖNETİM */}
-            {currentView === 'dashboard' && <Dashboard />}
+                {/* 5. FİNANSAL YÖNETİM */}
+                {currentView === 'dashboard' && <Dashboard />}
 
-            {/* 6. RAPORLAMA */}
-            {currentView === 'reports_employee' && <EmployeeReports />}
+                {/* 6. RAPORLAMA */}
+                {currentView === 'reports_employee' && <EmployeeReports />}
 
-            {/* 7. İNSAN KAYNAKLARI & KULLANICI YÖNETİMİ */}
-            {currentView === 'hr_interviews' && <HRInterviews />}
-            {currentView === 'user_management' && <UserManagement />}
+                {/* 7. İNSAN KAYNAKLARI & KULLANICI YÖNETİMİ */}
+                {currentView === 'hr_interviews' && <HRInterviews />}
+                {currentView === 'user_management' && <UserManagement />}
 
-            {/* 8. KALİTE YÖNETİMİ */}
-            {currentView === 'quality_pending' && <QualityPending onNavigate={setCurrentView} />}
-            {currentView === 'quality_templates' && <QualityTemplates />}
-            {currentView === 'quality_coas' && <QualityCoaList />}
+                {/* 8. KALİTE YÖNETİMİ */}
+                {currentView === 'quality_pending' && <QualityPending onNavigate={setCurrentView} />}
+                {currentView === 'quality_templates' && <QualityTemplates />}
+                {currentView === 'quality_coas' && <QualityCoaList />}
 
-            {/* İZLENEBİLİRLİK (ŞECERE) */}
-            {currentView === 'traceability' && <Traceability />}
+                {/* İZLENEBİLİRLİK (ŞECERE) */}
+                {currentView === 'traceability' && <Traceability />}
+              </>
+            )}
           </main>
         </div>
       </div>

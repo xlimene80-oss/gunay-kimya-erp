@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 # ---------------------------------------------------------
@@ -62,6 +62,9 @@ class UserRoleSummary(BaseModel):
     role_name: str
     model_config = ConfigDict(from_attributes=True)
 
+class UserPermissionsUpdate(BaseModel):
+    permissions: Dict[str, bool] = Field(..., description="Mapping of permission keys to boolean enabled states")
+
 class UserResponse(UserBase):
     id: int
     cari_id: Optional[int] = None
@@ -69,6 +72,8 @@ class UserResponse(UserBase):
     cari_code: Optional[str] = None
     created_at: datetime.datetime
     roles: List[str] = []
+    permissions: Optional[Dict[str, bool]] = None
+    effective_permissions: Dict[str, bool] = {}
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,6 +88,7 @@ class Token(BaseModel):
     roles: List[str] = []
     cari_id: Optional[int] = None
     user_role: Optional[str] = None
+    permissions: Optional[Dict[str, bool]] = None
 
 class TokenData(BaseModel):
     user_id: Optional[int] = None

@@ -1,9 +1,9 @@
 import enum
 import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlalchemy import (
     String, Text, Boolean, Integer, ForeignKey, 
-    DateTime, func, UniqueConstraint, Enum as SQLEnum
+    DateTime, func, UniqueConstraint, Enum as SQLEnum, JSON
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models import Base, TimestampMixin
@@ -15,6 +15,54 @@ class UserRoleEnum(str, enum.Enum):
 
 # Kullanım kolaylığı için alternatif alias
 UserType = UserRoleEnum
+
+DEFAULT_ADMIN_PERMISSIONS: Dict[str, bool] = {
+    "orders": True,
+    "planning": True,
+    "purchasing": True,
+    "manufacturing": True,
+    "inventory": True,
+    "crm": True,
+    "hr": True,
+    "users": True,
+    "accounting": True,
+    "quality": True,
+    "b2b_orders": True,
+    "b2b_tracking": True,
+    "b2b_statement": True,
+}
+
+DEFAULT_STAFF_PERMISSIONS: Dict[str, bool] = {
+    "orders": True,
+    "planning": True,
+    "purchasing": True,
+    "manufacturing": True,
+    "inventory": True,
+    "crm": True,
+    "hr": False,
+    "users": False,
+    "accounting": False,
+    "quality": True,
+    "b2b_orders": False,
+    "b2b_tracking": False,
+    "b2b_statement": False,
+}
+
+DEFAULT_CUSTOMER_PERMISSIONS: Dict[str, bool] = {
+    "orders": False,
+    "planning": False,
+    "purchasing": False,
+    "manufacturing": False,
+    "inventory": False,
+    "crm": False,
+    "hr": False,
+    "users": False,
+    "accounting": False,
+    "quality": False,
+    "b2b_orders": True,
+    "b2b_tracking": True,
+    "b2b_statement": True,
+}
 
 class User(Base, TimestampMixin):
     """
@@ -35,6 +83,9 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     cari_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cari_accounts.id", ondelete="SET NULL"), index=True, nullable=True)
 
+    # Dynamic ACL Permissions matrix: {"orders": true, "hr": false, ...}
+    permissions: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
+
     # Relationships
     cari: Mapped[Optional["CariAccount"]] = relationship("CariAccount", foreign_keys=[cari_id], lazy="selectin", back_populates="users")
     user_roles: Mapped[List["UserRole"]] = relationship(
@@ -47,6 +98,26 @@ class User(Base, TimestampMixin):
     @property
     def roles(self) -> List["Role"]:
         return [ur.role for ur in self.user_roles if ur.role is not None]
+
+    def get_effective_permissions(self) -> Dict[str, bool]:
+        """Calculates dynamic effective permissions merging defaults with user-specific overrides."""
+        if self.role == UserRoleEnum.ADMIN:
+            base = DEFAULT_ADMIN_PERMISSIONS.copy()
+        elif self.role == UserRoleEnum.CUSTOMER:
+            base = DEFAULT_CUSTOMER_PERMISSIONS.copy()
+        else:
+            base = DEFAULT_STAFF_PERMISSIONS.copy()
+
+        if self.permissions and isinstance(self.permissions, dict):
+            base.update(self.permissions)
+        return base
+
+    def has_permission(self, permission_key: str) -> bool:
+        """Evaluates whether the user holds active permission for a module/operation."""
+        if self.role == UserRoleEnum.ADMIN:
+            return True
+        perms = self.get_effective_permissions()
+        return bool(perms.get(permission_key, False))
 
 
 class Role(Base, TimestampMixin):

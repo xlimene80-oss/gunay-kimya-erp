@@ -38,7 +38,7 @@ except ImportError:
     from jwt import PyJWTError as JWTError
 
 from app.core.config import settings, get_db
-from app.models.auth import User, Role, UserRole, ModulePermission
+from app.models.auth import User, Role, UserRole, ModulePermission, UserRoleEnum
 from app.schemas.auth import TokenData
 
 security_scheme = HTTPBearer(auto_error=False)
@@ -176,6 +176,28 @@ def check_module_permission(module_name: str, action: str = "write") -> Callable
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access Denied: You do not hold '{action}' privileges for the '{module_name}' module."
+            )
+        return current_user
+
+    return permission_checker
+
+def require_permission(permission_key: str) -> Callable:
+    """
+    CRITICAL SECURITY GUARDRAILS:
+    Dynamic ACL dependency verifying whether the current user holds active permission
+    for a specific module/operation (e.g. 'orders', 'purchasing', 'hr', 'b2b_orders').
+
+    1. ADMINs automatically bypass all checks.
+    2. Sub-users (staff / customer) are checked against their effective permissions.
+    3. Throws HTTP 403 Forbidden with exact details if not authorized.
+    """
+    async def permission_checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role == UserRoleEnum.ADMIN:
+            return current_user
+        if not current_user.has_permission(permission_key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Erişim Engellendi: Bu modüle erişim yetkiniz bulunmamaktadır ('{permission_key}' yetkisi gerekli)."
             )
         return current_user
 

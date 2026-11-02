@@ -61,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile = false,
   onCloseMobile
 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
 
   const userRoles = (user?.roles || []).map((r) => r.toLowerCase());
   const userRolesStr = userRoles.join(' ');
@@ -365,7 +365,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
-  // Filter groups and items based on role
+  const itemPermissionMap: Record<string, string> = {
+    // Üretim
+    factory_dashboard: 'manufacturing',
+    bom_management: 'manufacturing',
+    packaging_station: 'manufacturing',
+    // Stok & Lojistik
+    inventory_stock: 'inventory',
+    products_raw_materials: 'inventory',
+    warehouse_layout: 'inventory',
+    pallet_box_center: 'inventory',
+    scanner: 'inventory',
+    // Satın Alma
+    goods_receipt: 'purchasing',
+    purchasing_requests: 'purchasing',
+    suppliers: 'purchasing',
+    // Satış & Sevkiyat
+    b2b: 'b2b_orders',
+    manual_orders_planning: 'planning',
+    orders: 'orders',
+    customers: 'crm',
+    logistics: 'planning',
+    // Kalite
+    quality_pending: 'quality',
+    quality_templates: 'quality',
+    quality_coas: 'quality',
+    traceability: 'quality',
+    // İK
+    hr_interviews: 'hr',
+    // Personel Raporlama
+    reports_employee: 'crm',
+    // Finans
+    dashboard: 'accounting',
+    // Sistem & Yönetim
+    user_management: 'users'
+  };
+
+  const checkItemAccess = (item: SubMenuItem) => {
+    if (isAdmin) return true;
+    const requiredPerm = itemPermissionMap[item.id];
+    if (requiredPerm) {
+      if (item.id === 'b2b') {
+        if (!hasPermission('b2b_orders') && !hasPermission('b2b_tracking') && !hasPermission('b2b_statement')) {
+          return false;
+        }
+      } else if (item.id === 'orders') {
+        if (!hasPermission('orders') && !hasPermission('b2b_orders')) {
+          return false;
+        }
+      } else if (!hasPermission(requiredPerm)) {
+        return false;
+      }
+    }
+    return checkRoleAccess(item.roles);
+  };
+
+  // Filter groups and items based on role and dynamic ACL permissions
   const visibleGroups = menuGroups
     .filter((group) => {
       // Finansal Yönetim: strictly hidden from B2B / Bayi!
@@ -375,7 +430,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     .map((group) => {
       const visibleItems = group.items.filter((item) => {
         if (isBayi && group.id === 'finance') return false;
-        return checkRoleAccess(item.roles);
+        return checkItemAccess(item);
       });
       return { ...group, items: visibleItems };
     })

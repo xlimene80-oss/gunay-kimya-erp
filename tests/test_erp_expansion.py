@@ -14,9 +14,11 @@ from app.models.purchasing import PurchaseRequest
 from app.models.hr import HRInterview, InterviewStatus
 from app.models.reports import EmployeeReport
 from app.routers.purchasing import build_whatsapp_link, build_mailto_link
+from app.database_migration import run_all_migrations
 
 async def run_expansion_tests():
     print("=== STARTING ERP EXPANSION & B2B ISOLATION TESTS ===")
+    await run_all_migrations()
 
     async with async_session_factory() as session:
         # 1. Setup test CariAccount
@@ -150,6 +152,30 @@ async def run_expansion_tests():
         assert report.id is not None
         assert report.report_type == "Satis"
         print("[PASSED] Test 6: EmployeeReport activity log verified!")
+
+        # 8. Dynamic ACL Permissions matrix verification
+        assert customer_user.has_permission("b2b_orders") is True
+        assert customer_user.has_permission("b2b_tracking") is True
+        assert customer_user.has_permission("manufacturing") is False
+        assert customer_user.has_permission("users") is False
+
+        # Admin override
+        admin_user = User(
+            email="admin_acl@gunaykimya.com",
+            full_name="Admin ACL Test",
+            hashed_password="hash",
+            role=UserRoleEnum.ADMIN,
+            is_active=True
+        )
+        assert admin_user.has_permission("manufacturing") is True
+        assert admin_user.has_permission("users") is True
+
+        # Custom permissions toggle override on customer
+        customer_user.permissions = {"manufacturing": True, "b2b_orders": False}
+        assert customer_user.has_permission("manufacturing") is True
+        assert customer_user.has_permission("b2b_orders") is False
+        assert customer_user.has_permission("b2b_statement") is True
+        print("[PASSED] Test 7: Dynamic ACL Permissions matrix & role override verified!")
 
         # Clean up test rows
         await session.rollback()

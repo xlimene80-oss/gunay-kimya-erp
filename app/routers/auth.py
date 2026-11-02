@@ -13,7 +13,7 @@ from app.core.security import (
 from app.models.auth import User, Role, UserRole, ModulePermission, UserRoleEnum
 from app.models.cari import CariAccount
 from app.schemas.auth import (
-    UserCreate, UserResponse, Token, LoginRequest,
+    UserCreate, UserResponse, UserPermissionsUpdate, Token, LoginRequest,
     RoleCreate, RoleResponse, PermissionCheck
 )
 
@@ -111,7 +111,9 @@ async def register_user(
         cari_title=result.cari.title if result.cari else None,
         cari_code=result.cari.code if result.cari else None,
         created_at=result.created_at,
-        roles=[r.role_name for r in result.roles]
+        roles=[r.role_name for r in result.roles],
+        permissions=result.permissions,
+        effective_permissions=result.get_effective_permissions()
     )
 
 @router.post("/login", response_model=Token)
@@ -194,6 +196,7 @@ async def login(
         )
 
     roles_list = [r.role_name for r in user.roles]
+    effective_perms = user.get_effective_permissions()
     expires = datetime.timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     token = create_access_token(
         data={
@@ -201,7 +204,8 @@ async def login(
             "user_id": user.id,
             "roles": roles_list,
             "cari_id": user.cari_id,
-            "user_role": user.role.value
+            "user_role": user.role.value,
+            "permissions": effective_perms
         },
         expires_delta=expires
     )
@@ -212,7 +216,8 @@ async def login(
         expires_in_minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES,
         roles=roles_list,
         cari_id=user.cari_id,
-        user_role=user.role.value
+        user_role=user.role.value,
+        permissions=effective_perms
     )
 
 @router.get("/me", response_model=UserResponse)
@@ -232,7 +237,9 @@ async def get_my_profile(
         cari_title=current_user.cari.title if current_user.cari else None,
         cari_code=current_user.cari.code if current_user.cari else None,
         created_at=current_user.created_at,
-        roles=[r.role_name for r in current_user.roles]
+        roles=[r.role_name for r in current_user.roles],
+        permissions=current_user.permissions,
+        effective_permissions=current_user.get_effective_permissions()
     )
 
 @router.get("/users", response_model=List[UserResponse])
@@ -263,7 +270,9 @@ async def list_users(
             cari_title=u.cari.title if u.cari else None,
             cari_code=u.cari.code if u.cari else None,
             created_at=u.created_at,
-            roles=[r.role_name for r in u.roles]
+            roles=[r.role_name for r in u.roles],
+            permissions=u.permissions,
+            effective_permissions=u.get_effective_permissions()
         )
         for u in users
     ]
@@ -311,7 +320,57 @@ async def toggle_user_status(
         cari_title=user.cari.title if user.cari else None,
         cari_code=user.cari.code if user.cari else None,
         created_at=user.created_at,
-        roles=[r.role_name for r in user.roles]
+        roles=[r.role_name for r in user.roles],
+        permissions=user.permissions,
+        effective_permissions=user.get_effective_permissions()
+    )
+
+@router.patch("/users/{user_id}/permissions", response_model=UserResponse)
+async def update_user_permissions(
+    user_id: int,
+    payload: UserPermissionsUpdate,
+    current_user: User = Depends(require_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    CRITICAL ACL MANAGEMENT:
+    Update the dynamic module permissions dictionary for a specific user (ADMIN only).
+    """
+    stmt = (
+        select(User)
+        .options(
+            selectinload(User.user_roles).selectinload(UserRole.role),
+            selectinload(User.cari)
+        )
+        .where(User.id == user_id)
+    )
+    user = await db.scalar(stmt)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kullanıcı bulunamadı."
+        )
+
+    current_perms = dict(user.permissions or {})
+    current_perms.update(payload.permissions)
+    user.permissions = current_perms
+
+    await db.commit()
+    await db.refresh(user)
+
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+        is_active=user.is_active,
+        cari_id=user.cari_id,
+        cari_title=user.cari.title if user.cari else None,
+        cari_code=user.cari.code if user.cari else None,
+        created_at=user.created_at,
+        roles=[r.role_name for r in user.roles],
+        permissions=user.permissions,
+        effective_permissions=user.get_effective_permissions()
     )
 
 @router.post("/roles", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
