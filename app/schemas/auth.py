@@ -70,6 +70,7 @@ class UserBase(BaseModel):
     role: UserRoleEnum = Field(default=UserRoleEnum.STAFF, description="admin, staff, customer")
     is_active: bool = Field(default=True)
     department_id: Optional[int] = Field(default=None, description="Bağlı olduğu departman ID")
+    user_code: Optional[str] = Field(default=None, max_length=20, description="B2B kullanıcı kodu, örn: B2B-0001")
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6, description="Plaintext password to hash")
@@ -100,6 +101,8 @@ class UserPermissionsUpdate(BaseModel):
 
 class UserResponse(UserBase):
     id: int
+    user_code: Optional[str] = None
+    is_locked: bool = False
     cari_id: Optional[int] = None
     cari_title: Optional[str] = None
     cari_code: Optional[str] = None

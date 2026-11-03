@@ -1,4 +1,5 @@
 import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -6,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings, engine
 from app.models import Base
 from app.routers import api_router
+
+logger = logging.getLogger("app.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,7 +54,6 @@ async def ensure_admin_user():
     from app.models.auth import User, Role, UserRole, UserRoleEnum
 
     target_email = "admin@gunaykimya.com"
-    admin_password = os.getenv("ADMIN_PASSWORD") or settings.ADMIN_PASSWORD or "Admin123!"
 
     async with async_session_factory() as session:
         stmt = select(User).where(User.email == target_email)
@@ -63,6 +65,11 @@ async def ensure_admin_user():
                 user.role = UserRoleEnum.ADMIN
                 await session.commit()
             print(f"[STARTUP INFO] Admin kullanıcısı '{target_email}' veritabanında mevcut.")
+            return
+
+        admin_password = os.getenv("ADMIN_PASSWORD") or settings.ADMIN_PASSWORD
+        if not admin_password:
+            logger.critical("ADMIN_PASSWORD tanımlı değil, admin oluşturulmadı")
             return
 
         print(f"[STARTUP INFO] '{target_email}' veritabanında bulunamadı. ADMIN_PASSWORD ile otomatik oluşturuluyor...")
@@ -184,8 +191,10 @@ app.include_router(api_router, prefix="/api")
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint for Render.com monitoring and container orchestrators."""
+    from app.database_migration import is_schema_ok
     return {
         "status": "healthy",
+        "schema_ok": is_schema_ok(),
         "service": settings.PROJECT_NAME,
         "database_driver": engine.url.drivername,
         "database": str(engine.url.database or "app.db")

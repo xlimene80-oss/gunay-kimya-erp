@@ -1,9 +1,15 @@
+import asyncio
+import ipaddress
 import datetime
+import logging
+import re
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger("auth")
 
 from app.core.config import settings, get_db
 from app.core.security import (
@@ -12,7 +18,7 @@ from app.core.security import (
 )
 from app.models.auth import (
     User, Role, UserRole, ModulePermission, UserRoleEnum,
-    Department, ALL_MODULES, MODULE_ACTIONS, get_default_department_permissions
+    Department, LoginAttempt, ALL_MODULES, MODULE_ACTIONS, get_default_department_permissions
 )
 from app.models.cari import CariAccount
 from app.schemas.auth import (
@@ -22,6 +28,66 @@ from app.schemas.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["User Authentication & RBAC"])
+
+# ---------------------------------------------------------
+# Security: Trusted Client IP Extraction (Render & Cloudflare)
+# ---------------------------------------------------------
+def get_trusted_client_ip(request: Request) -> str:
+    """
+    Extracts the trusted client IP address behind reverse proxies (Render / Cloudflare).
+
+    MİMARİ GÜVENLİK MODELİ (RENDER PROXY & IP SPOOFING KORUMASI):
+    ---------------------------------------------------------------------------------
+    1. Render altyapısı, gelen HTTP trafiğini Cloudflare edge katmanı üzerinden karşılar.
+    2. Cloudflare, TCP soket bağlantısını kuran gerçek istemci IP'sini 'CF-Connecting-IP'
+       ve 'True-Client-IP' başlıklarına yazar ve istemciden gelen harici sahte değerleri
+       temizler/üzerine yazar (strip & overwrite). Bu başlıklar istemci tarafından
+       kesinlikle taklit edilemez (spoof-proof).
+    3. 'X-Forwarded-For' başlığı ise bir proxy zinciridir:
+       Eğer kötü niyetli bir istemci 'X-Forwarded-For: 1.2.3.4' başlığı enjekte ederse,
+       Render proxy'si istemcinin gerçek IP'sini bu zincirin SAĞINA (sonuna) ekler:
+       '1.2.3.4, <gerçek_istemci_ip>'.
+       Bu nedenle X-Forwarded-For başlığının ilk elemanını (split(',')[0]) almak GÜVENSİZDİR
+       ve doğrudan IP taklidine (spoofing) yol açar.
+    4. Bu fonksiyonda güvenilir IP çözümleme sırası:
+       a) 'CF-Connecting-IP' veya 'True-Client-IP' (varsa doğrudan kullanılır).
+       b) 'X-Forwarded-For' başlığı varsa: Sağdan sola taranarak Render/Cloudflare dahili
+          alt ağları (RFC 1918 private IP'ler: 10.x, 172.16-31.x, 127.x) elenir ve
+          proxy tarafından zincire eklenmiş ilk geçerli genel IP alınır.
+       c) Fallback: request.client.host (yerel geliştirme ve test istemcileri).
+    ---------------------------------------------------------------------------------
+    """
+    # 1. Edge-verified Cloudflare headers on Render
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip and cf_ip.strip():
+        return cf_ip.split(",")[0].strip()
+
+    true_client_ip = request.headers.get("true-client-ip")
+    if true_client_ip and true_client_ip.strip():
+        return true_client_ip.split(",")[0].strip()
+
+    # 2. X-Forwarded-For header (right-to-left inspection)
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        ips = [ip.strip() for ip in xff.split(",") if ip.strip()]
+        for candidate in reversed(ips):
+            try:
+                ip_obj = ipaddress.ip_address(candidate)
+                # Skip internal private hops if multiple hops exist
+                if len(ips) > 1 and (ip_obj.is_private or ip_obj.is_loopback):
+                    continue
+                return candidate
+            except ValueError:
+                continue
+        if ips:
+            return ips[-1]
+
+    # 3. Direct socket connection fallback
+    if request.client and request.client.host:
+        return request.client.host
+
+    return "127.0.0.1"
+
 
 
 # ---------------------------------------------------------
@@ -240,14 +306,45 @@ async def delete_department(
 # ---------------------------------------------------------
 # User Registration & Management Endpoints
 # ---------------------------------------------------------
-def serialize_user_response(u: User) -> UserResponse:
-    """Helper to cleanly serialize user with department and effective permissions."""
+def is_attempt_locked(attempt: Optional[LoginAttempt]) -> bool:
+    """Helper to verify if a login attempt record is currently in active 15m lockout."""
+    if not attempt or not attempt.locked_until:
+        return False
+    lock_until = attempt.locked_until
+    if lock_until.tzinfo is None:
+        lock_until = lock_until.replace(tzinfo=datetime.timezone.utc)
+    return lock_until > datetime.datetime.now(datetime.timezone.utc)
+
+
+async def check_user_locked(db: AsyncSession, user: User) -> bool:
+    """Checks whether the user account is currently locked out by brute force attempts across identity or IP."""
+    keys = [user.email.lower().strip()]
+    if user.user_code:
+        keys.append(user.user_code.lower().strip())
+    
+    conditions = [LoginAttempt.identity_key.in_(keys)]
+    for k in keys:
+        conditions.append(LoginAttempt.identity_key.like(f"{k}|%"))
+
+    attempts = (await db.scalars(
+        select(LoginAttempt).where(or_(*conditions))
+    )).all()
+    for att in attempts:
+        if is_attempt_locked(att):
+            return True
+    return False
+
+
+def serialize_user_response(u: User, is_locked: bool = False) -> UserResponse:
+    """Helper to cleanly serialize user with department, user_code, lock status and effective permissions."""
     return UserResponse(
         id=u.id,
         email=u.email,
         full_name=u.full_name,
         role=u.role,
         is_active=u.is_active,
+        user_code=u.user_code,
+        is_locked=is_locked,
         department_id=u.department_id,
         department_name=u.department.name if u.department else None,
         department_code=u.department.code if u.department else None,
@@ -265,12 +362,22 @@ def serialize_user_response(u: User) -> UserResponse:
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register_or_create_user(
     payload: UserCreate,
+    current_user: Optional[User] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Register or create a new user account (Staff, Admin, or B2B Customer).
-    Auto-assigns Department and Role, and enforces B2B Cari isolation.
+    Auto-assigns Department and Role, enforces B2B Cari isolation, and generates sequential B2B-XXXX code.
     """
+    total_users = await db.scalar(select(func.count(User.id)))
+    # If users exist, only authenticated ADMIN users can create new accounts
+    if total_users > 0:
+        if not current_user or current_user.role != UserRoleEnum.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Yalnızca sistem yöneticileri yeni kullanıcı oluşturabilir."
+            )
+
     existing_user = await db.scalar(select(User).where(User.email == payload.email.strip().lower()))
     if existing_user:
         raise HTTPException(
@@ -278,7 +385,6 @@ async def register_or_create_user(
             detail=f"'{payload.email}' e-posta adresiyle kayıtlı bir kullanıcı zaten mevcut."
         )
 
-    total_users = await db.scalar(select(func.count(User.id)))
     # First user automatically gets ADMIN
     effective_role = UserRoleEnum.ADMIN if total_users == 0 else payload.role
 
@@ -297,6 +403,33 @@ async def register_or_create_user(
         if dept_match:
             assigned_dept_id = dept_match.id
 
+    # Sequential B2B user code generation (server-side only)
+    generated_user_code = None
+    if effective_role == UserRoleEnum.CUSTOMER:
+        existing_codes_res = await db.scalars(
+            select(User.user_code).where(User.user_code.is_not(None))
+        )
+        existing_codes = set(existing_codes_res.all())
+        
+        max_seq = 0
+        for code in existing_codes:
+            match = re.match(r"^B2B-(\d+)$", code or "", re.IGNORECASE)
+            if match:
+                try:
+                    seq_val = int(match.group(1))
+                    if seq_val > max_seq:
+                        max_seq = seq_val
+                except ValueError:
+                    pass
+
+        next_seq = max_seq + 1
+        candidate_code = f"B2B-{next_seq:04d}"
+        while candidate_code in existing_codes:
+            next_seq += 1
+            candidate_code = f"B2B-{next_seq:04d}"
+
+        generated_user_code = candidate_code
+
     hashed_pwd = get_password_hash(payload.password)
     user = User(
         email=payload.email.strip().lower(),
@@ -305,6 +438,7 @@ async def register_or_create_user(
         role=effective_role,
         is_active=payload.is_active,
         cari_id=payload.cari_id,
+        user_code=generated_user_code,
         department_id=assigned_dept_id,
         permissions={}
     )
@@ -344,7 +478,7 @@ async def register_or_create_user(
         .where(User.id == user.id)
     )
     result = await db.scalar(stmt)
-    return serialize_user_response(result)
+    return serialize_user_response(result, is_locked=False)
 
 
 @router.get("/users", response_model=List[UserResponse])
@@ -352,7 +486,7 @@ async def list_users(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all system users with department details and permission matrix."""
+    """List all system users with department details, user_code and lock status."""
     stmt = (
         select(User)
         .options(
@@ -363,7 +497,21 @@ async def list_users(
         .order_by(User.id.desc())
     )
     users = (await db.scalars(stmt)).all()
-    return [serialize_user_response(u) for u in users]
+
+    # Pre-fetch active locked attempts
+    attempts = (await db.scalars(select(LoginAttempt).where(LoginAttempt.locked_until.is_not(None)))).all()
+    locked_identities = set()
+    for att in attempts:
+        if is_attempt_locked(att):
+            locked_identities.add(att.identity_key.lower().strip())
+
+    output = []
+    for u in users:
+        u_locked = (u.email.lower().strip() in locked_identities) or (
+            bool(u.user_code and u.user_code.lower().strip() in locked_identities)
+        )
+        output.append(serialize_user_response(u, is_locked=u_locked))
+    return output
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
@@ -384,7 +532,8 @@ async def get_user(
     user = await db.scalar(stmt)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı.")
-    return serialize_user_response(user)
+    is_locked = await check_user_locked(db, user)
+    return serialize_user_response(user, is_locked=is_locked)
 
 
 @router.put("/users/{user_id}", response_model=UserResponse)
@@ -396,6 +545,7 @@ async def update_user(
 ):
     """
     Update user profile, department, role, or active status (Admin only).
+    Protects last active Admin from deactivation or role downgrade.
     """
     stmt = (
         select(User)
@@ -409,6 +559,22 @@ async def update_user(
     user = await db.scalar(stmt)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı.")
+
+    # Guard: protect last active admin
+    is_current_active_admin = (user.role == UserRoleEnum.ADMIN and user.is_active)
+    will_be_active = payload.is_active if payload.is_active is not None else user.is_active
+    will_be_admin = (payload.role == UserRoleEnum.ADMIN) if payload.role is not None else (user.role == UserRoleEnum.ADMIN)
+
+    if is_current_active_admin and (not will_be_active or not will_be_admin):
+        active_admins_count = await db.scalar(
+            select(func.count(User.id))
+            .where(and_(User.role == UserRoleEnum.ADMIN, User.is_active == True, User.id != user_id))
+        )
+        if (active_admins_count or 0) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sistemde en az 1 aktif Sistem Yöneticisi (Admin) bulunmalıdır. Son aktif yönetici pasife alınamaz veya rolü değiştirilemez."
+            )
 
     if payload.email is not None:
         clean_email = payload.email.strip().lower()
@@ -445,7 +611,8 @@ async def update_user(
 
     await db.commit()
     await db.refresh(user)
-    return serialize_user_response(user)
+    is_locked = await check_user_locked(db, user)
+    return serialize_user_response(user, is_locked=is_locked)
 
 
 @router.post("/users/{user_id}/reset-password", response_model=UserResponse)
@@ -472,7 +639,8 @@ async def reset_user_password(
     user.hashed_password = get_password_hash(payload.new_password)
     await db.commit()
     await db.refresh(user)
-    return serialize_user_response(user)
+    is_locked = await check_user_locked(db, user)
+    return serialize_user_response(user, is_locked=is_locked)
 
 
 @router.patch("/users/{user_id}/status", response_model=UserResponse)
@@ -482,7 +650,7 @@ async def toggle_user_status(
     current_user: User = Depends(require_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Toggle or set user active/passive status (Admin only)."""
+    """Toggle or set user active/passive status (Admin only). Protects last active Admin."""
     stmt = (
         select(User)
         .options(
@@ -496,14 +664,23 @@ async def toggle_user_status(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı.")
 
-    if is_active is not None:
-        user.is_active = is_active
-    else:
-        user.is_active = not user.is_active
+    target_status = is_active if is_active is not None else not user.is_active
+    if not target_status and user.role == UserRoleEnum.ADMIN and user.is_active:
+        active_admins_count = await db.scalar(
+            select(func.count(User.id))
+            .where(and_(User.role == UserRoleEnum.ADMIN, User.is_active == True, User.id != user_id))
+        )
+        if (active_admins_count or 0) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sistemde en az 1 aktif Sistem Yöneticisi (Admin) bulunmalıdır. Son aktif yönetici pasife alınamaz."
+            )
 
+    user.is_active = target_status
     await db.commit()
     await db.refresh(user)
-    return serialize_user_response(user)
+    is_locked = await check_user_locked(db, user)
+    return serialize_user_response(user, is_locked=is_locked)
 
 
 @router.patch("/users/{user_id}/permissions", response_model=UserResponse)
@@ -544,7 +721,8 @@ async def update_user_permissions(
     user.permissions = current_perms
     await db.commit()
     await db.refresh(user)
-    return serialize_user_response(user)
+    is_locked = await check_user_locked(db, user)
+    return serialize_user_response(user, is_locked=is_locked)
 
 
 @router.delete("/users/{user_id}")
@@ -553,7 +731,7 @@ async def delete_user(
     current_user: User = Depends(require_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete user permanently (Admin only)."""
+    """Delete user permanently (Admin only). Protects last active Admin."""
     if user_id == current_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kendi hesabınızı silemezsiniz.")
 
@@ -561,9 +739,90 @@ async def delete_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı.")
 
+    if user.role == UserRoleEnum.ADMIN and user.is_active:
+        active_admins_count = await db.scalar(
+            select(func.count(User.id))
+            .where(and_(User.role == UserRoleEnum.ADMIN, User.is_active == True, User.id != user_id))
+        )
+        if (active_admins_count or 0) < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sistemde en az 1 aktif Sistem Yöneticisi (Admin) bulunmalıdır. Son aktif yönetici silinemez."
+            )
+
     await db.delete(user)
     await db.commit()
     return {"message": f"'{user.email}' kullanıcısı başarıyla silindi."}
+
+
+@router.post("/users/{user_id}/unlock", response_model=UserResponse)
+async def unlock_user(
+    user_id: int,
+    current_user: User = Depends(require_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Unlocks a locked user account (Admin only).
+    Resets failed login attempt counter and clears lock expiry.
+    Logs immutable audit record.
+    """
+    stmt = (
+        select(User)
+        .options(
+            selectinload(User.user_roles).selectinload(UserRole.role),
+            selectinload(User.cari),
+            selectinload(User.department)
+        )
+        .where(User.id == user_id)
+    )
+    user = await db.scalar(stmt)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı.")
+
+    keys = [user.email.lower().strip()]
+    if user.user_code:
+        keys.append(user.user_code.lower().strip())
+
+    conditions = [LoginAttempt.identity_key.in_(keys)]
+    for k in keys:
+        conditions.append(LoginAttempt.identity_key.like(f"{k}|%"))
+        conditions.append(LoginAttempt.identity_key == f"global:{k}")
+
+    attempts = (await db.scalars(
+        select(LoginAttempt).where(or_(*conditions))
+    )).all()
+    
+    associated_ips = set()
+    for att in attempts:
+        att.failed_count = 0
+        att.locked_until = None
+        att.last_attempt_at = datetime.datetime.now(datetime.timezone.utc)
+        if att.ip_address:
+            associated_ips.add(att.ip_address)
+
+    # Clear IP-only locks associated with this user
+    if associated_ips:
+        ip_keys = [f"ip:{ip}" for ip in associated_ips]
+        ip_attempts = (await db.scalars(
+            select(LoginAttempt).where(LoginAttempt.identity_key.in_(ip_keys))
+        )).all()
+        for ip_att in ip_attempts:
+            ip_att.failed_count = 0
+            ip_att.locked_until = None
+            ip_att.last_attempt_at = datetime.datetime.now(datetime.timezone.utc)
+
+    await db.commit()
+
+    # Immutable Audit Log
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    audit_msg = (
+        f"[AUDIT] Admin '{current_user.email}' (ID: {current_user.id}) unlocked user account "
+        f"'{user.email}' (ID: {user.id}, Code: {user.user_code}) at {now_iso}."
+    )
+    logger.info(audit_msg)
+    print(audit_msg)
+
+    return serialize_user_response(user, is_locked=False)
 
 
 # ---------------------------------------------------------
@@ -575,9 +834,84 @@ async def login(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Authenticate user credentials and issue JWT access token."""
+    """
+    Authenticate user credentials and issue JWT access token.
+    Strict Authentication Policy:
+    - Login identity can be exact full email OR B2B user code (case-insensitive, trimmed).
+    - Rejects SQL LIKE wildcards (% and _).
+    - Protects against brute-force attacks via auth_login_attempts:
+      5 failed consecutive attempts result in a 15-minute lockout.
+    - Generic error message: 'Geçersiz kullanıcı adı/e-posta veya şifre.'
+    """
     identity = payload.email.strip()
+    ident_key = identity.lower()
 
+    # Reject wildcard injections immediately
+    if "%" in identity or "_" in identity:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Geçersiz kullanıcı adı/e-posta veya şifre."
+        )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    client_ip = get_trusted_client_ip(request)
+
+    pair_key = f"{ident_key}|{client_ip}"
+    ip_key = f"ip:{client_ip}"
+    global_key = f"global:{ident_key}"
+
+    # 1. Fetch attempt records for IP, (identity + IP), global identity, and legacy keys
+    keys_to_query = [pair_key, ip_key, global_key, ident_key]
+    attempts = (await db.scalars(
+        select(LoginAttempt).where(LoginAttempt.identity_key.in_(keys_to_query))
+    )).all()
+    attempt_map = {a.identity_key: a for a in attempts}
+    pair_attempt = attempt_map.get(pair_key)
+    ip_attempt = attempt_map.get(ip_key)
+    global_attempt = attempt_map.get(global_key)
+    legacy_attempt = attempt_map.get(ident_key)
+
+    # 1a. IP-level Lockout: 20 failed attempts in 15 mins blocks the entire IP
+    if is_attempt_locked(ip_attempt):
+        lock_until = ip_attempt.locked_until
+        if lock_until.tzinfo is None:
+            lock_until = lock_until.replace(tzinfo=datetime.timezone.utc)
+        remaining_seconds = int((lock_until - now).total_seconds())
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Geçersiz kullanıcı adı/e-posta veya şifre.",
+            headers={"Retry-After": str(max(remaining_seconds, 1))}
+        )
+
+    # 1b. (Identity + IP) Lockout: 5 failed attempts from same IP blocks that specific user on this IP
+    active_pair_lock = is_attempt_locked(pair_attempt) or is_attempt_locked(legacy_attempt)
+    if active_pair_lock:
+        lock_rec = pair_attempt if is_attempt_locked(pair_attempt) else legacy_attempt
+        lock_until = lock_rec.locked_until
+        if lock_until.tzinfo is None:
+            lock_until = lock_until.replace(tzinfo=datetime.timezone.utc)
+        remaining_seconds = int((lock_until - now).total_seconds())
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Geçersiz kullanıcı adı/e-posta veya şifre.",
+            headers={"Retry-After": str(max(remaining_seconds, 1))}
+        )
+
+    # 1c. Global Identity Throttle: 50 failed attempts across all IPs delays processing
+    if global_attempt and global_attempt.failed_count >= 50:
+        lat = global_attempt.last_attempt_at
+        if lat.tzinfo is None:
+            lat = lat.replace(tzinfo=datetime.timezone.utc)
+        if (now - lat) <= datetime.timedelta(minutes=15):
+            logger.warning(
+                f"[SECURITY ALERT] Global brute-force rate threshold (50 attempts) exceeded for '{ident_key}'. "
+                f"Throttling response to slow down automated attack."
+            )
+            await asyncio.sleep(1.0)
+        else:
+            global_attempt.failed_count = 0
+
+    # 2. Look up user by exact email OR exact user_code
     stmt = (
         select(User)
         .options(
@@ -585,69 +919,116 @@ async def login(
             selectinload(User.cari),
             selectinload(User.department)
         )
-        .where(func.lower(User.email) == identity.lower())
+        .where(
+            or_(
+                func.lower(User.email) == ident_key,
+                and_(User.user_code.is_not(None), func.upper(User.user_code) == identity.upper())
+            )
+        )
     )
     user = await db.scalar(stmt)
 
-    # Alias fallback
-    if not user and "@" not in identity:
-        dept_stmt = (
-            select(User)
-            .options(
-                selectinload(User.user_roles).selectinload(UserRole.role),
-                selectinload(User.cari),
-                selectinload(User.department)
-            )
-            .where(
-                or_(
-                    User.email.ilike(f"{identity}@%"),
-                    User.full_name.ilike(f"%{identity}%")
-                )
-            )
-        )
-        user = await db.scalar(dept_stmt)
+    # 3. Verify credentials
+    credentials_valid = False
+    if user and verify_password(payload.password, user.hashed_password):
+        credentials_valid = True
 
-    if not user and "@" not in identity:
-        cari_stmt = (
-            select(CariAccount)
-            .where(
-                or_(
-                    CariAccount.title.ilike(f"%{identity}%"),
-                    CariAccount.code.ilike(f"%{identity}%")
-                )
+    if not credentials_valid:
+        # A) Update (Identity + IP) Counter: 5 failures within 15 min = 15m lockout
+        if not pair_attempt:
+            pair_attempt = LoginAttempt(
+                identity_key=pair_key,
+                ip_address=client_ip,
+                failed_count=1,
+                last_attempt_at=now
             )
-        )
-        caris = (await db.scalars(cari_stmt)).all()
-        if caris:
-            cari_ids = [c.id for c in caris]
-            b2b_user_stmt = (
-                select(User)
-                .options(
-                    selectinload(User.user_roles).selectinload(UserRole.role),
-                    selectinload(User.cari),
-                    selectinload(User.department)
-                )
-                .where(User.cari_id.in_(cari_ids))
-            )
-            user = await db.scalar(b2b_user_stmt)
+            db.add(pair_attempt)
+        else:
+            if pair_attempt.last_attempt_at:
+                lat = pair_attempt.last_attempt_at if pair_attempt.last_attempt_at.tzinfo else pair_attempt.last_attempt_at.replace(tzinfo=datetime.timezone.utc)
+                if (now - lat) > datetime.timedelta(minutes=15) and not is_attempt_locked(pair_attempt):
+                    pair_attempt.failed_count = 0
+            pair_attempt.failed_count += 1
+            pair_attempt.last_attempt_at = now
+            pair_attempt.ip_address = client_ip
+            if pair_attempt.failed_count >= 5:
+                pair_attempt.locked_until = now + datetime.timedelta(minutes=15)
 
-    if not user:
+        # B) Update IP-only Counter: 20 failures within 15 min = 15m IP lockout
+        if not ip_attempt:
+            ip_attempt = LoginAttempt(
+                identity_key=ip_key,
+                ip_address=client_ip,
+                failed_count=1,
+                last_attempt_at=now
+            )
+            db.add(ip_attempt)
+        else:
+            if ip_attempt.last_attempt_at:
+                lat = ip_attempt.last_attempt_at if ip_attempt.last_attempt_at.tzinfo else ip_attempt.last_attempt_at.replace(tzinfo=datetime.timezone.utc)
+                if (now - lat) > datetime.timedelta(minutes=15) and not is_attempt_locked(ip_attempt):
+                    ip_attempt.failed_count = 0
+            ip_attempt.failed_count += 1
+            ip_attempt.last_attempt_at = now
+            ip_attempt.ip_address = client_ip
+            if ip_attempt.failed_count >= 20:
+                ip_attempt.locked_until = now + datetime.timedelta(minutes=15)
+
+        # C) Update Global Identity Counter: 50 failures within 15 min = warning & delay
+        if not global_attempt:
+            global_attempt = LoginAttempt(
+                identity_key=global_key,
+                ip_address=None,
+                failed_count=1,
+                last_attempt_at=now
+            )
+            db.add(global_attempt)
+        else:
+            if global_attempt.last_attempt_at:
+                lat = global_attempt.last_attempt_at if global_attempt.last_attempt_at.tzinfo else global_attempt.last_attempt_at.replace(tzinfo=datetime.timezone.utc)
+                if (now - lat) > datetime.timedelta(minutes=15):
+                    global_attempt.failed_count = 0
+            global_attempt.failed_count += 1
+            global_attempt.last_attempt_at = now
+            if global_attempt.failed_count >= 50:
+                logger.warning(
+                    f"[SECURITY WARNING] Global brute-force threshold (50 failures) reached for identity '{ident_key}'."
+                )
+
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Geçersiz kullanıcı adı/e-posta veya şifre."
         )
 
-    if not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Geçersiz kullanıcı adı/e-posta veya şifre."
-        )
-
+    # 4. Check active status
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Kullanıcı hesabınız pasif duruma getirilmiştir. Lütfen yöneticinizle görüşün."
         )
+
+    # 5. Successful login: Reset pair attempt and global counter for this user and this IP
+    keys_to_reset = [
+        pair_key,
+        global_key,
+        ident_key,
+        user.email.lower().strip()
+    ]
+    if user.user_code:
+        keys_to_reset.append(user.user_code.lower().strip())
+        keys_to_reset.append(f"{user.user_code.lower().strip()}|{client_ip}")
+        keys_to_reset.append(f"global:{user.user_code.lower().strip()}")
+
+    reset_attempts = (await db.scalars(
+        select(LoginAttempt).where(LoginAttempt.identity_key.in_(keys_to_reset))
+    )).all()
+    for att in reset_attempts:
+        att.failed_count = 0
+        att.locked_until = None
+        att.last_attempt_at = now
+
+    await db.commit()
 
     roles_list = [r.role_name for r in user.roles]
     effective_perms = user.get_effective_permissions()

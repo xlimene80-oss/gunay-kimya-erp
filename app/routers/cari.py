@@ -7,6 +7,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_db
+from app.core.security import get_current_user
+from app.models.auth import User, UserRoleEnum
 from app.models.cari import (
     CariAccount, CariGroup, CheckBond, CheckBondStatus, CheckBondType, RiskStatus, CariType
 )
@@ -15,7 +17,44 @@ from app.schemas.cari import (
     RiskLimitResponse
 )
 
-router = APIRouter(prefix="/caris", tags=["Cari & Credit Risk Engine"])
+router = APIRouter(tags=["Cari & Credit Risk Engine"])
+
+# ---------------------------------------------------------
+# Permission Helper: Strict Staff & Admin Authorization
+# ---------------------------------------------------------
+def check_staff_cari_permission(user: User, action: str = "read") -> bool:
+    """
+    Enforces server-side ACL on Cari endpoints for corporate users:
+    - Admin: Full access.
+    - Customer: Rejection (customers have dedicated tenant-isolated paths).
+    - Staff: Requires 'customers', 'fin_accounts', or 'suppliers' module permission.
+    """
+    if user.role == UserRoleEnum.ADMIN:
+        return True
+    if user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar bu işlemi yapamaz."
+        )
+
+    # Granular permission check
+    has_perm = (
+        user.has_permission("customers", action) or
+        user.has_permission("fin_accounts", action) or
+        user.has_permission("suppliers", action) or
+        (action == "read" and (
+            user.has_permission("orders", "read") or
+            user.has_permission("settings_users", "read") or
+            user.has_permission("purchasing_requests", "read")
+        ))
+    )
+    if not has_perm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Yetkisiz erişim: Cari hesaplar için '{action}' yetkiniz bulunmamaktadır."
+        )
+    return True
+
 
 # ---------------------------------------------------------
 # Helper Functions: Credit Risk Enforcement
@@ -86,9 +125,12 @@ def evaluate_and_enforce_credit_risk(
 @router.post("/groups/", response_model=CariGroupResponse, status_code=status.HTTP_201_CREATED)
 async def create_cari_group(
     payload: CariGroupCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Create a client pricing/discount tier (e.g. Industrial Bulk, Distributor, Retailer)."""
+    check_staff_cari_permission(current_user, "create")
+
     existing = await db.scalar(select(CariGroup).where(CariGroup.code == payload.code))
     if existing:
         raise HTTPException(
@@ -111,9 +153,11 @@ async def create_cari_group(
 async def list_cari_groups(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """List all dealer/client classification groups."""
+    check_staff_cari_permission(current_user, "read")
     stmt = select(CariGroup).offset(skip).limit(limit)
     result = await db.scalars(stmt)
     return list(result.all())
@@ -130,19 +174,34 @@ async def list_caris(
     group_id: Optional[int] = Query(None, description="Filter dealers by CariGroup ID"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    List all accounts (customers/dealers/suppliers) with pagination and rich filtering.
+    List all accounts with mandatory role & tenant isolation:
+    - B2B Customer: strictly receives ONLY their own assigned CariAccount record.
+    - Staff: requires 'customers' or 'fin_accounts' or 'suppliers' read permission.
+    - Admin: unrestricted list.
     """
+    # Strict B2B Customer Tenant Isolation
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        if not current_user.cari_id:
+            return []
+        query = select(CariAccount).where(CariAccount.id == current_user.cari_id)
+        result = await db.scalars(query)
+        return list(result.all())
+
+    # Staff server-side permission check
+    check_staff_cari_permission(current_user, "read")
+
     query = select(CariAccount)
-    if cari_type is not None:
+    if cari_type is not None and isinstance(cari_type, CariType):
         query = query.where(CariAccount.cari_type == cari_type)
-    if is_active is not None:
+    if is_active is not None and isinstance(is_active, bool):
         query = query.where(CariAccount.is_active == is_active)
-    if group_id is not None:
+    if group_id is not None and isinstance(group_id, int):
         query = query.where(CariAccount.group_id == group_id)
-    if q:
+    if q and isinstance(q, str):
         pat = f"%{q.strip()}%"
         query = query.where(
             or_(
@@ -160,9 +219,22 @@ async def list_caris(
 @router.get("/{id}", response_model=CariAccountResponse)
 async def get_cari(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Retrieve single customer or supplier account by ID."""
+    """
+    Retrieve single customer or supplier account by ID.
+    Strictly forbids B2B customer from inspecting another company's profile (HTTP 403).
+    """
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        if id != current_user.cari_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Yetkisiz erişim: Başka bir cari hesaba ait bilgilere erişemezsiniz."
+            )
+    else:
+        check_staff_cari_permission(current_user, "read")
+
     cari = await db.get(CariAccount, id)
     if not cari:
         raise HTTPException(
@@ -174,11 +246,12 @@ async def get_cari(
 @router.post("/", response_model=CariAccountResponse, status_code=status.HTTP_201_CREATED)
 async def create_cari(
     payload: CariAccountCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Create a new customer (dealer) or supplier account.
-    """
+    """Create a new customer (dealer) or supplier account (Staff/Admin only)."""
+    check_staff_cari_permission(current_user, "create")
+
     existing = await db.scalar(select(CariAccount).where(CariAccount.code == payload.code.strip()))
     if existing:
         raise HTTPException(
@@ -221,9 +294,12 @@ async def create_cari(
 async def update_cari(
     id: int,
     payload: CariAccountUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Update customer or supplier account fields."""
+    """Update customer or supplier account fields (Staff/Admin only)."""
+    check_staff_cari_permission(current_user, "update")
+
     cari = await db.get(CariAccount, id)
     if not cari:
         raise HTTPException(
@@ -269,9 +345,12 @@ async def update_cari(
 @router.patch("/{id}/toggle-active", response_model=CariAccountResponse)
 async def toggle_cari_active(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Toggle customer or supplier active/passive status (soft deactivation)."""
+    """Toggle customer or supplier active/passive status (Staff/Admin only)."""
+    check_staff_cari_permission(current_user, "delete")
+
     cari = await db.get(CariAccount, id)
     if not cari:
         raise HTTPException(
@@ -287,11 +366,14 @@ async def toggle_cari_active(
 async def list_check_bond_maturities(
     days_ahead: int = Query(90, ge=1, le=365),
     cari_id: Optional[int] = Query(None),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Returns upcoming check and promissory note maturities for cash-flow forecasting.
+    Returns upcoming check and promissory note maturities for cash-flow forecasting (Staff/Admin only).
     """
+    check_staff_cari_permission(current_user, "read")
+
     today = datetime.date.today()
     max_date = today + datetime.timedelta(days=days_ahead)
     
@@ -331,12 +413,23 @@ async def list_check_bond_maturities(
 @router.get("/{id}/risk-status", response_model=RiskLimitResponse)
 async def get_cari_risk_status(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Fetch dealer max_credit_limit, verify dynamic check/bond maturity exposure,
     and compute available credit balance.
+    B2B Customers are strictly limited to their own ID.
     """
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        if id != current_user.cari_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Yetkisiz erişim: Başka bir cari hesabın risk durumunu görüntüleyemezsiniz."
+            )
+    else:
+        check_staff_cari_permission(current_user, "read")
+
     # Load Cari and active check/bond portfolio
     stmt = (
         select(CariAccount)
@@ -366,13 +459,22 @@ async def get_cari_risk_status(
 async def validate_transaction_charge(
     id: int,
     charge_amount: Decimal = Query(..., gt=Decimal("0.00"), description="Prospective invoice or order charge amount"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     CRITICAL RISK LOGIC ENDPOINT:
     Verifies if a prospective new invoice or order charge can be assigned to a Cari account.
-    Raises HTTP 400 Bad Request if current_risk exceeds max_credit_limit and overlimit is disallowed.
     """
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        if id != current_user.cari_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Yetkisiz erişim: Başka bir cari hesap üzerinde işlem doğrulayamazsınız."
+            )
+    else:
+        check_staff_cari_permission(current_user, "update")
+
     cari = await db.get(CariAccount, id)
     if not cari:
         raise HTTPException(

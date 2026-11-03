@@ -1,3 +1,4 @@
+import os
 import asyncio
 import datetime
 from decimal import Decimal
@@ -16,6 +17,10 @@ from app.models.inventory import (
 from app.models.manufacturing import Recipe, RecipeIngredient, ProductionOrder, ProductionStatus
 
 async def seed_master_data():
+    if os.getenv("SEED_DEMO_DATA") != "1":
+        print("[SEED INFO] SEED_DEMO_DATA=1 tanımlı değil. Demo seed atlandı.")
+        return
+
     print("[1/6] Initializing database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -60,7 +65,6 @@ async def seed_master_data():
             role_objs[role_name] = role
 
         print("[3/6] Seeding users with official corporate domain (@gunaykimya.net)...")
-        import os
         admin_pwd = os.getenv("ADMIN_PASSWORD", "Admin123!")
         users_data = [
             ("admin@gunaykimya.net", admin_pwd, "Kemal Günay (Sistem Yöneticisi)", "ADMIN"),

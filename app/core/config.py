@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
-    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "Admin123!")
+    ADMIN_PASSWORD: Optional[str] = os.getenv("ADMIN_PASSWORD", None)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

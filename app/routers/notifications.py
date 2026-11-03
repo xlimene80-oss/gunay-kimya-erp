@@ -5,6 +5,8 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_db
+from app.core.security import get_current_user
+from app.models.auth import User
 from app.models.notifications import Notification
 from app.schemas.notifications import NotificationResponse
 
@@ -16,7 +18,8 @@ async def list_notifications(
     unread_only: bool = Query(False, description="Filter only unread notifications"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Retrieve real-time event notifications for inter-departmental workflows.
@@ -34,7 +37,8 @@ async def list_notifications(
 @router.patch("/{id}/read", response_model=NotificationResponse)
 async def mark_notification_as_read(
     id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Mark a notification as read."""
     notif = await db.get(Notification, id)
@@ -51,7 +55,8 @@ async def mark_notification_as_read(
 @router.get("/unread-count")
 async def get_unread_count(
     role: str = Query(..., description="Role to check e.g. DEPO_SORUMLUSU, MUHASEBE, BAYI"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Get total unread notification count for an operational department or dealer."""
     count = await db.scalar(

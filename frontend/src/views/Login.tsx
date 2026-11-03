@@ -29,11 +29,13 @@ export const Login: React.FC = () => {
   const getIdentityType = (val: string): 'empty' | 'staff' | 'b2b' => {
     const trimmed = val.trim().toLowerCase();
     if (!trimmed) return 'empty';
-    const departmentKeywords = ['muhasebe', 'satis', 'satış', 'ik', 'depo', 'uretim', 'üretim', 'admin', 'kalite', 'yonetim', 'yönetim', 'laboratuvar'];
-    if (trimmed.includes('@') || departmentKeywords.includes(trimmed)) {
+    if (trimmed.startsWith('b2b-') || /^b2b\d+/.test(trimmed)) {
+      return 'b2b';
+    }
+    if (trimmed.includes('@')) {
       return 'staff';
     }
-    return 'b2b';
+    return 'empty';
   };
 
   const identityType = getIdentityType(email);
@@ -62,7 +64,7 @@ export const Login: React.FC = () => {
       triggerShake();
       if (err.response) {
         if (err.response.status === 401) {
-          setErrorMessage('E-posta veya şifre hatalı');
+          setErrorMessage('Geçersiz kullanıcı adı/e-posta veya şifre.');
         } else if (err.response.status === 403) {
           setErrorMessage('Hesabınız aktif değildir. Lütfen sistem yöneticinizle iletişime geçiniz.');
         } else if (err.response.data?.detail) {
@@ -258,7 +260,7 @@ export const Login: React.FC = () => {
                   htmlFor="identity"
                   className="block text-xs font-semibold text-text uppercase tracking-wider"
                 >
-                  Kullanıcı Adı / E-Posta / Firma Adı
+                  E-Posta veya B2B Kullanıcı Kodu
                 </label>
                 {identityType === 'staff' && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary bg-primary-soft px-2 py-0.5 rounded-full border border-primary/20 animate-fade-in">
@@ -291,12 +293,12 @@ export const Login: React.FC = () => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ad@gunaykimya.com, muhasebe veya Firma Adı"
+                  placeholder="E-posta veya B2B kullanıcı kodu"
                   className="block w-full min-h-[48px] h-12 pl-11 pr-4 bg-bg border border-border rounded-xl text-text placeholder-text-muted text-sm transition-all duration-150 input-brand-focus"
                 />
               </div>
               <p className="mt-1 text-[11px] text-text-muted">
-                Personel için e-posta veya departman adı; B2B müşterileri için kayıtlı Firma Unvanı.
+                Personel için kurumsal e-posta adresi; B2B müşterileri için e-posta veya B2B kullanıcı kodu (örn. B2B-0001).
               </p>
             </div>
 

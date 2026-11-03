@@ -185,6 +185,9 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     cari_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cari_accounts.id", ondelete="SET NULL"), index=True, nullable=True)
 
+    # B2B unique customer user code (e.g. B2B-0001)
+    user_code: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True)
+
     # Department association
     department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("auth_departments.id", ondelete="SET NULL"), index=True, nullable=True)
 
@@ -327,4 +330,25 @@ class ModulePermission(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("role_id", "module_name", name="uq_role_module_permission"),
+    )
+
+
+class LoginAttempt(Base):
+    """
+    Tracks failed login attempts and multi-layer brute-force security locks:
+    - (Identity + IP): 5 consecutive failed attempts trigger a 15-minute lockout.
+    - (IP only): 20 failed attempts in 15 minutes trigger a 15-minute IP block.
+    - (Global Identity): 50 failed attempts trigger rate-limiting progressive delay and security warning.
+    """
+    __tablename__ = "auth_login_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    identity_key: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), index=True, nullable=True)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_until: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_attempt_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        nullable=False
     )

@@ -17,7 +17,10 @@ import {
   Edit2,
   Trash2,
   Shield,
-  Info
+  Info,
+  Copy,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -38,6 +41,8 @@ interface UserRecord {
   full_name: string;
   role: 'admin' | 'staff' | 'customer';
   is_active: boolean;
+  user_code?: string | null;
+  is_locked?: boolean;
   department_id?: number | null;
   department_name?: string | null;
   department_code?: string | null;
@@ -313,16 +318,30 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
 
         const res = await axios.post('/api/v1/auth/users', createPayload);
         setUsers((prev) => [res.data, ...prev]);
-        setFormSuccess('Yeni kullanıcı başarıyla oluşturuldu.');
+        if (res.data?.user_code) {
+          setFormSuccess(`Yeni B2B kullanıcısı oluşturuldu! Kullanıcı Kodu: ${res.data.user_code}`);
+        } else {
+          setFormSuccess('Yeni kullanıcı başarıyla oluşturuldu.');
+        }
       }
 
       setTimeout(() => {
         setIsUserModalOpen(false);
-      }, 700);
+      }, 1200);
     } catch (err: any) {
       setFormError(err.response?.data?.detail || 'Kullanıcı kaydedilirken hata oluştu.');
     } finally {
       setFormSaving(false);
+    }
+  };
+
+  const handleUnlockUser = async (u: UserRecord) => {
+    try {
+      const res = await axios.post(`/api/v1/auth/users/${u.id}/unlock`);
+      setUsers((prev) => prev.map((item) => (item.id === u.id ? res.data : item)));
+      alert(`'${u.full_name}' (${u.email}) kullanıcısının hesap kilidi başarıyla açıldı.`);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Hesap kilidi açılamadı.');
     }
   };
 
@@ -775,6 +794,24 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
                         <td className="py-3 px-4">
                           <div className="font-bold text-text">{u.full_name}</div>
                           <div className="text-[11px] text-text-muted font-mono">{u.email}</div>
+                          {u.user_code && (
+                            <div className="inline-flex items-center gap-1.5 mt-1">
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-mono font-bold text-[10px] border border-emerald-500/20">
+                                {u.user_code}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(u.user_code || '');
+                                  alert(`Kullanıcı kodu kopyalandı: ${u.user_code}`);
+                                }}
+                                className="p-0.5 text-text-muted hover:text-text hover:bg-bg rounded transition"
+                                title="Kodu Kopyala"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
@@ -809,21 +846,38 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
                           )}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={() => handleToggleUserStatus(u)}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition ${
-                              u.is_active
-                                ? 'bg-success/10 text-success hover:bg-success/20'
-                                : 'bg-danger/10 text-danger hover:bg-danger/20'
-                            }`}
-                            title="Tıklayarak durumu değiştirin"
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${u.is_active ? 'bg-success' : 'bg-danger'}`} />
-                            <span>{u.is_active ? 'Aktif' : 'Pasif'}</span>
-                          </button>
+                          <div className="flex flex-col items-center gap-1">
+                            <button
+                              onClick={() => handleToggleUserStatus(u)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition ${
+                                u.is_active
+                                  ? 'bg-success/10 text-success hover:bg-success/20'
+                                  : 'bg-danger/10 text-danger hover:bg-danger/20'
+                              }`}
+                              title="Tıklayarak durumu değiştirin"
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${u.is_active ? 'bg-success' : 'bg-danger'}`} />
+                              <span>{u.is_active ? 'Aktif' : 'Pasif'}</span>
+                            </button>
+                            {u.is_locked && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20 text-[9px] font-bold animate-pulse">
+                                <Lock className="w-2.5 h-2.5" />
+                                Kilitli (15 dk)
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
+                            {u.is_locked && (
+                              <button
+                                onClick={() => handleUnlockUser(u)}
+                                className="p-1.5 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-100/50 transition"
+                                title="Hesap Kilidini Aç"
+                              >
+                                <Unlock className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 setMatrixTargetType('USER');
@@ -1257,6 +1311,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   placeholder="Örn: Ahmet Yılmaz"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
@@ -1269,6 +1324,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
                 <input
                   type="email"
                   required
+                  autoComplete="off"
                   placeholder="ahmet.yilmaz@gunaykimya.com"
                   value={userEmail}
                   onChange={(e) => setUserEmail(e.target.value)}
@@ -1284,6 +1340,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
                   <input
                     type="password"
                     required={!editingUserId}
+                    autoComplete="new-password"
                     placeholder="En az 6 karakter"
                     value={userPassword}
                     onChange={(e) => setUserPassword(e.target.value)}
