@@ -89,16 +89,21 @@ async def get_current_user(
             raise credentials_exception
 
         # Device/Browser fingerprint validation (Zero-Trust)
-        if token_ua_hash and request:
-            req_ua = request.headers.get("user-agent", "").strip()
-            if req_ua:
-                calc_hash = hashlib.sha256(req_ua.encode("utf-8")).hexdigest()[:16]
-                if calc_hash != token_ua_hash:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Güvenlik Uyarısı: Oturum belirteci farklı bir tarayıcı/cihaza kopyalandığı için iptal edildi (User-Agent Parmak İzi Uyuşmazlığı).",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
+        if token_ua_hash:
+            req_ua = request.headers.get("user-agent", "").strip() if request else ""
+            if not req_ua:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Güvenlik Uyarısı: Tarayıcı parmak izi başlığı eksik. Erişim engellendi.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            calc_hash = hashlib.sha256(req_ua.encode("utf-8")).hexdigest()[:16]
+            if calc_hash != token_ua_hash:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Güvenlik Uyarısı: Oturum belirteci farklı bir tarayıcı/cihaza kopyalandığı için iptal edildi (User-Agent Parmak İzi Uyuşmazlığı).",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
     except JWTError:
         raise credentials_exception
 
@@ -203,7 +208,7 @@ def check_module_permission(module_name: str, action: str = "write") -> Callable
 
     return permission_checker
 
-def require_permission(permission_key: str) -> Callable:
+def require_permission(permission_key: str, action: str = "read") -> Callable:
     """
     CRITICAL SECURITY GUARDRAILS:
     Dynamic ACL dependency verifying whether the current user holds active permission
@@ -216,10 +221,10 @@ def require_permission(permission_key: str) -> Callable:
     async def permission_checker(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role == UserRoleEnum.ADMIN:
             return current_user
-        if not current_user.has_permission(permission_key):
+        if not current_user.has_permission(permission_key, action=action):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Erişim Engellendi: Bu modüle erişim yetkiniz bulunmamaktadır ('{permission_key}' yetkisi gerekli)."
+                detail=f"Erişim Engellendi: Bu modülde '{action}' yetkiniz bulunmamaktadır ('{permission_key}' yetkisi gerekli)."
             )
         return current_user
 

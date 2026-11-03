@@ -42,10 +42,14 @@ export function enforceDomainLicense(): boolean {
   return true;
 }
 
-export function initBrowserShield(): void {
-  if (typeof window === 'undefined') return;
-  if ((window as any).__BYPASS_SHIELD__) return;
-
+export function initBrowserShield(): void {
+
+  if (typeof window === 'undefined') return;
+
+  if ((window as any).__BYPASS_SHIELD__) return;
+
+
+
   // 1. Verify Domain License
   enforceDomainLicense();
 
@@ -76,6 +80,33 @@ export function initBrowserShield(): void {
   );
 
   window.addEventListener('dragstart', (e: DragEvent) => e.preventDefault(), true);
+
+  // 3.1 Disable Clipboard Copy & Cut on Sensitive ERP Data
+  window.addEventListener(
+    'copy',
+    (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return true;
+      }
+      e.preventDefault();
+      return false;
+    },
+    true
+  );
+
+  window.addEventListener(
+    'cut',
+    (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return true;
+      }
+      e.preventDefault();
+      return false;
+    },
+    true
+  );
 
   // 4. Intercept DevTools & Source View Hotkeys
   window.addEventListener(

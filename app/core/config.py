@@ -69,6 +69,8 @@ else:
     # Production PostgreSQL pool configuration
     engine_kwargs["pool_size"] = 10
     engine_kwargs["max_overflow"] = 20
+    engine_kwargs["pool_recycle"] = 300
+    engine_kwargs["pool_timeout"] = 30
 
 # Async SQLAlchemy Engine & Session Factory
 engine = create_async_engine(

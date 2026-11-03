@@ -8,6 +8,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_db
+from app.core.security import get_current_user
+from app.models.auth import User, UserRoleEnum
 from app.models.accounting import (
     Company, FiscalPeriod, Account, JournalEntry, JournalEntryLine,
     PeriodStatus, JournalStatus, AccountType
@@ -20,14 +22,30 @@ from app.schemas.accounting import (
 
 router = APIRouter(tags=["Accounting & Financial Ledger"])
 
+def check_accounting_access(user: User):
+    if user.role == UserRoleEnum.ADMIN:
+        return
+    if user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar genel muhasebe kayıtlarına erişemez."
+        )
+    if not (user.has_permission("fin_invoices", "read") or user.has_permission("fin_payments", "read") or user.has_permission("fin_accounts", "read") or user.has_permission("dashboard", "read")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Yetkisiz erişim: Muhasebe ve Finans modülüne erişim yetkiniz bulunmamaktadır."
+        )
+
 # ---------------------------------------------------------
 # Company Endpoints
 # ---------------------------------------------------------
 @router.post("/companies/", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
     payload: CompanyCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    check_accounting_access(current_user)
     """Register a new corporate legal entity."""
     existing = await db.scalar(select(Company).where(Company.code == payload.code))
     if existing:
@@ -52,8 +70,10 @@ async def create_company(
 async def list_companies(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    check_accounting_access(current_user)
     """List corporate entities."""
     stmt = select(Company).offset(skip).limit(limit)
     result = await db.scalars(stmt)
@@ -66,8 +86,10 @@ async def list_companies(
 @router.post("/fiscal-periods/", response_model=FiscalPeriodResponse, status_code=status.HTTP_201_CREATED)
 async def open_fiscal_period(
     payload: FiscalPeriodCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    check_accounting_access(current_user)
     """
     Open a new financial year/period for multi-period accounting controls.
     """
@@ -131,8 +153,10 @@ async def list_fiscal_periods(
 @router.post("/journal-entries/", response_model=JournalEntryResponse, status_code=status.HTTP_201_CREATED)
 async def create_journal_entry(
     payload: JournalEntryCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    check_accounting_access(current_user)
     """
     Create official double-entry bookkeeping ledger logs (Yevmiye Fişi).
     

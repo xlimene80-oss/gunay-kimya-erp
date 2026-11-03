@@ -10,8 +10,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_db
-from app.core.security import get_optional_current_user
-from app.models.auth import User
+from app.core.security import get_current_user, get_optional_current_user
+from app.models.auth import User, UserRoleEnum
 from app.models.cari import CariAccount
 from pydantic import BaseModel
 from app.models.manufacturing import (
@@ -38,8 +38,11 @@ router = APIRouter(tags=["Manufacturing & Recipe Engine"])
 @router.post("/recipes/", response_model=RecipeResponse, status_code=status.HTTP_201_CREATED)
 async def create_recipe(
     payload: RecipeCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem: B2B Müşterileri reçete oluşturamaz.")
     """
     Define a new Bill of Materials / Chemical formula for a product.
     Includes target output SKU and nested raw material ingredients.
@@ -144,8 +147,11 @@ async def list_recipes(
 @router.post("/production-orders/", response_model=ProductionOrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_production_order(
     payload: ProductionOrderCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem: B2B Müşterileri doğrudan üretim emri oluşturamaz.")
     """
     Create a new production batch order linked to a formula recipe.
     """

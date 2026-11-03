@@ -22,7 +22,7 @@ function obfuscatePlugin() {
           controlFlowFlattening: false,
           deadCodeInjection: false,
           debugProtection: false,
-          disableConsoleOutput: false,
+          disableConsoleOutput: true,
           identifierNamesGenerator: 'hexadecimal',
           log: false,
           numbersToExpressions: false,

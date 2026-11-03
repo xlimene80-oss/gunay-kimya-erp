@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_db
-from app.models.auth import User
+from app.models.auth import User, UserRoleEnum
 from app.models.inventory import BatchLot, Item
 from app.models.manufacturing import (
     ProductionOrder,
@@ -23,7 +23,7 @@ from app.services.bom_engine import (
     BOMExecutionResult
 )
 from app.core.security import get_optional_current_user
-from app.routers.auth import get_current_user
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/api/v1/production", tags=["Production & BOM Engine"])
 
@@ -92,6 +92,7 @@ class CreateProductionOrderRequest(BaseModel):
 
 @router.get("/products", response_model=List[ProduceableProductItem])
 async def list_produceable_products(
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -126,8 +127,11 @@ async def list_produceable_products(
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
 async def create_new_production_order(
     payload: CreateProductionOrderRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar doğrudan üretim emri oluşturamaz.")
     """
     Creates a new production batch order in SIPARIS_ALINDI phase with recipe link.
     """
@@ -206,6 +210,7 @@ async def create_new_production_order(
 @router.post("/orders/{order_id}/validate-stock", response_model=StockValidationResponse)
 async def validate_production_order_stock(
     order_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -243,8 +248,11 @@ async def validate_production_order_stock(
 @router.post("/orders/{order_id}/consume-fefo", response_model=BOMExecutionResult)
 async def trigger_fefo_consumption_endpoint(
     order_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar hammadde sarfiyatı tetikleyemez.")
     """
     Executes dynamic FEFO stock deduction and records exact USD production costs.
     If approved stock is insufficient, transaction is rolled back and HTTP 400 is returned.
@@ -291,8 +299,11 @@ async def trigger_fefo_consumption_endpoint(
 @router.post("/orders/{order_id}/complete")
 async def complete_production_order_endpoint(
     order_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar üretim emrini kapatamaz.")
     """
     Completes production order with full BOM validation and USD costing.
     If FEFO consumption hasn't occurred yet, executes it with quality validation.
@@ -343,8 +354,11 @@ async def complete_production_order_endpoint(
 @router.get("/orders/{order_id}/cost-breakdown", response_model=ProductionCostBreakdownResponse)
 async def get_order_cost_breakdown(
     order_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar maliyet dökümünü görüntüleyemez.")
     """
     Returns itemized USD ($) cost breakdown of raw materials consumed for a production order.
     """
@@ -406,8 +420,11 @@ async def get_order_cost_breakdown(
 @router.get("/costs/analytics", response_model=ProductionCostAnalyticsResponse)
 async def get_production_cost_analytics(
     limit: int = Query(10, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar üretim analizlerini görüntüleyemez.")
     """
     Finance dashboard metrics for production material costing in USD ($).
     Provides aggregated spend, average unit cost, raw chemical breakdown, and recent orders.

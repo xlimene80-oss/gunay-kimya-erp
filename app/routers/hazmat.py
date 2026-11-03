@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.core.config import async_session_factory
 from app.core.security import get_optional_current_user, get_current_user
-from app.models.auth import User
+from app.models.auth import User, UserRoleEnum
 from app.models.inventory import Item, BatchLot
 from app.models.hazmat import (
     WarehouseZone, WarehouseBin, StorageIncompatibilityRule,
@@ -85,7 +85,7 @@ async def get_db():
 # 1. ZONES & BINS
 # -------------------------------------------------------------
 @router.get("/zones")
-async def list_warehouse_zones(db: AsyncSession = Depends(get_db)):
+async def list_warehouse_zones(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """List all warehouse zones with their bins and current lots count."""
     stmt = select(WarehouseZone).order_by(WarehouseZone.id)
     res = await db.execute(stmt)
@@ -126,7 +126,9 @@ async def list_warehouse_zones(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/zones")
-async def create_warehouse_zone(payload: WarehouseZoneCreate, db: AsyncSession = Depends(get_db)):
+async def create_warehouse_zone(payload: WarehouseZoneCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     new_zone = WarehouseZone(
         name=payload.name.strip(),
         code=payload.code.strip().upper(),
@@ -141,7 +143,9 @@ async def create_warehouse_zone(payload: WarehouseZoneCreate, db: AsyncSession =
 
 
 @router.put("/zones/{zone_id}")
-async def update_warehouse_zone(zone_id: int, payload: WarehouseZoneUpdate, db: AsyncSession = Depends(get_db)):
+async def update_warehouse_zone(zone_id: int, payload: WarehouseZoneUpdate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     zone = await db.get(WarehouseZone, zone_id)
     if not zone:
         raise HTTPException(status_code=404, detail="Bölge bulunamadı.")
@@ -160,7 +164,9 @@ async def update_warehouse_zone(zone_id: int, payload: WarehouseZoneUpdate, db: 
 
 
 @router.delete("/zones/{zone_id}")
-async def toggle_warehouse_zone(zone_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_warehouse_zone(zone_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     zone = await db.get(WarehouseZone, zone_id)
     if not zone:
         raise HTTPException(status_code=404, detail="Bölge bulunamadı.")
@@ -205,7 +211,9 @@ async def list_warehouse_bins(
 
 
 @router.post("/bins")
-async def create_warehouse_bin(payload: WarehouseBinCreate, db: AsyncSession = Depends(get_db)):
+async def create_warehouse_bin(payload: WarehouseBinCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     zone = await db.get(WarehouseZone, payload.zone_id)
     if not zone:
         raise HTTPException(status_code=404, detail="Hedef bölge bulunamadı.")
@@ -225,7 +233,9 @@ async def create_warehouse_bin(payload: WarehouseBinCreate, db: AsyncSession = D
 
 
 @router.put("/bins/{bin_id}")
-async def update_warehouse_bin(bin_id: int, payload: WarehouseBinUpdate, db: AsyncSession = Depends(get_db)):
+async def update_warehouse_bin(bin_id: int, payload: WarehouseBinUpdate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     b = await db.get(WarehouseBin, bin_id)
     if not b:
         raise HTTPException(status_code=404, detail="Raf bulunamadı.")
@@ -246,7 +256,9 @@ async def update_warehouse_bin(bin_id: int, payload: WarehouseBinUpdate, db: Asy
 
 
 @router.delete("/bins/{bin_id}")
-async def toggle_warehouse_bin(bin_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_warehouse_bin(bin_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     b = await db.get(WarehouseBin, bin_id)
     if not b:
         raise HTTPException(status_code=404, detail="Raf bulunamadı.")
@@ -260,7 +272,7 @@ async def toggle_warehouse_bin(bin_id: int, db: AsyncSession = Depends(get_db)):
 # 2. PLACEMENT VALIDATION & SHELF ALLOCATION
 # -------------------------------------------------------------
 @router.post("/validate-placement")
-async def validate_placement(payload: PlacementValidationRequest, db: AsyncSession = Depends(get_db)):
+async def validate_placement(payload: PlacementValidationRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Validates whether a product's storage class is compatible with the selected shelf/bin zone.
     Returns clear warning if classes mismatch or if zone violates incompatibility rules.
@@ -434,7 +446,7 @@ async def list_placement_audits(
 # 4. INCOMPATIBILITY RULES
 # -------------------------------------------------------------
 @router.get("/incompatibility-rules")
-async def list_incompatibility_rules(db: AsyncSession = Depends(get_db)):
+async def list_incompatibility_rules(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt = select(StorageIncompatibilityRule).order_by(StorageIncompatibilityRule.id)
     res = await db.execute(stmt)
     rules = res.scalars().all()
@@ -451,7 +463,9 @@ async def list_incompatibility_rules(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/incompatibility-rules")
-async def create_incompatibility_rule(payload: IncompatibilityRuleCreate, db: AsyncSession = Depends(get_db)):
+async def create_incompatibility_rule(payload: IncompatibilityRuleCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     rule = StorageIncompatibilityRule(
         class_a=payload.class_a.strip(),
         class_b=payload.class_b.strip(),
@@ -465,7 +479,9 @@ async def create_incompatibility_rule(payload: IncompatibilityRuleCreate, db: As
 
 
 @router.delete("/incompatibility-rules/{rule_id}")
-async def toggle_incompatibility_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_incompatibility_rule(rule_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     r = await db.get(StorageIncompatibilityRule, rule_id)
     if not r:
         raise HTTPException(status_code=404, detail="Kural bulunamadı.")
@@ -479,7 +495,7 @@ async def toggle_incompatibility_rule(rule_id: int, db: AsyncSession = Depends(g
 # 5. SYSTEM SETTINGS
 # -------------------------------------------------------------
 @router.get("/settings")
-async def get_hazmat_settings(db: AsyncSession = Depends(get_db)):
+async def get_hazmat_settings(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt = select(SystemConfig)
     res = await db.execute(stmt)
     configs = {c.config_key: c.config_value for c in res.scalars().all()}
@@ -491,7 +507,9 @@ async def get_hazmat_settings(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/settings")
-async def update_hazmat_settings(payload: SettingsUpdateRequest, db: AsyncSession = Depends(get_db)):
+async def update_hazmat_settings(payload: SettingsUpdateRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem.")
     if payload.sds_validity_months is not None:
         cfg = await db.scalar(select(SystemConfig).where(SystemConfig.config_key == "sds_validity_months"))
         if cfg:
@@ -632,7 +650,7 @@ async def serve_sds_file(filename: str):
 # 7. DASHBOARD METRICS
 # -------------------------------------------------------------
 @router.get("/dashboard-metrics")
-async def get_hazmat_dashboard_metrics(db: AsyncSession = Depends(get_db)):
+async def get_hazmat_dashboard_metrics(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Returns metrics for hazardous materials and SDS missing/expired warnings.
     """

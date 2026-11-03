@@ -18,8 +18,9 @@ from app.models.inventory import (
     BarcodeUnit, BarcodeType, BarcodeStatus
 )
 from app.models.cari import CariAccount
-from app.models.auth import User
-from app.core.security import get_optional_current_user
+from app.services.bom_engine import is_status_approved
+from app.models.auth import User, UserRoleEnum
+from app.core.security import get_current_user, get_optional_current_user
 from app.core.anti_scraping import check_export_quota, MAX_EXPORT_ROWS_PER_REQUEST
 from app.models.manufacturing import ProductionOrder
 from app.models.hazmat import WarehouseBin, WarehouseZone, WarehousePlacementAudit
@@ -79,6 +80,7 @@ async def list_items(
     q: Optional[str] = Query(None, description="Search term for SKU, name, or CAS number"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List all chemical/product SKUs with search and filtering."""
@@ -132,8 +134,11 @@ async def get_item(
 @router.post("/items/", response_model=ItemResponse, status_code=status.HTTP_201_CREATED)
 async def create_item(
     payload: ItemCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz işlem: B2B Müşteri rolündeki kullanıcılar ürün tanımlayamaz.")
     """Create a new SKU item (Raw Material, Intermediate, Finished Good, or Packaging)."""
     existing_item = await db.scalar(select(Item).where(Item.sku == payload.sku.strip()))
     if existing_item:
@@ -1339,8 +1344,11 @@ async def create_dispatch_order(
 @router.patch("/inventory/dispatch/{id}/ship", response_model=DispatchShipResponse)
 async def ship_dispatch_order(
     id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşterileri sevk emrini sevk edemez.")
     """
     CRITICAL DISPATCH COMPLETION:
     When status transitions to SHIPPED:
@@ -1382,6 +1390,11 @@ async def ship_dispatch_order(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Assigned batch lot {item.batch_lot_id} is not located in '{dispatch.warehouse}'."
                 )
+            if not is_status_approved(batch.status):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Kalite Kontrol Kilidi: '{batch.batch_number}' nolu parti/lot karantinada veya bloke durumdadır ({batch.status}). Sevk edilemez!"
+                )
             if batch.quantity < qty_needed:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1399,7 +1412,11 @@ async def ship_dispatch_order(
                     and_(
                         BatchLot.item_id == item.item_id,
                         BatchLot.warehouse == dispatch.warehouse,
-                        BatchLot.quantity > Decimal("0.000")
+                        BatchLot.quantity > Decimal("0.000"),
+                        or_(
+                            func.upper(BatchLot.status).like("%SERBEST%"),
+                            func.upper(BatchLot.status).like("%APPROVED%")
+                        )
                     )
                 )
                 .order_by(BatchLot.expiration_date.asc().nulls_last(), BatchLot.received_at.asc())
@@ -1494,8 +1511,11 @@ async def list_scanned_barcode_units_for_dispatch(
 @router.post("/inventory/verify-scan", response_model=VerifyScanResponse)
 async def verify_handheld_scan(
     payload: VerifyScanRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşterileri el terminali doğrulaması yapamaz.")
     """
     HANDHELD MOBILE SCANNER (EL TERMİNALİ) VERIFICATION ENDPOINT
     Performs 4-layer validation before provisionally matching a scanned barcode:
@@ -1522,6 +1542,17 @@ async def verify_handheld_scan(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Hatalı Barkod! Sistemde kayıtlı olmayan birim okutuldu: '{clean_barcode}'"
         )
+
+    # 1.05 Check quality quarantine/blocked status of linked production batch
+    if barcode_unit.production_order_id:
+        prod_order = await db.get(ProductionOrder, barcode_unit.production_order_id)
+        if prod_order and prod_order.lot_number:
+            lot_rec = await db.scalar(select(BatchLot).where(BatchLot.batch_number == prod_order.lot_number))
+            if lot_rec and not is_status_approved(lot_rec.status):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Kalite Kontrol Kilidi: Bu birime ait lot ({lot_rec.batch_number}) henüz kalite kontrol onayından geçmemiştir (Durum: {lot_rec.status}). El terminali ile sevk okutması engellendi!"
+                )
 
     # 1.1 Verify IN_STOCK status
     if barcode_unit.status == BarcodeStatus.SHIPPED:
@@ -1644,8 +1675,11 @@ async def verify_handheld_scan(
 @router.post("/inventory/dispatch/{id}/finalize", response_model=FinalizeDispatchResponse)
 async def finalize_dispatch_verification(
     id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim.")
     """
     FINALIZES EL TERMINALI VERIFICATION & SHIPS ORDER:
     Strict Guardrail: Can ONLY be executed if all line items in the DispatchOrder
@@ -1713,6 +1747,11 @@ async def finalize_dispatch_verification(
         qty_needed = item.quantity
         if item.batch_lot_id:
             batch = await db.get(BatchLot, item.batch_lot_id)
+            if batch and not is_status_approved(batch.status):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Kalite Kontrol Kilidi: '{batch.batch_number}' nolu parti/lot karantinada veya bloke durumdadır ({batch.status}). Sevk edilemez!"
+                )
             if batch and batch.quantity >= qty_needed:
                 batch.quantity -= qty_needed
         else:
@@ -1723,7 +1762,11 @@ async def finalize_dispatch_verification(
                     and_(
                         BatchLot.item_id == item.item_id,
                         BatchLot.warehouse == dispatch.warehouse,
-                        BatchLot.quantity > Decimal("0.000")
+                        BatchLot.quantity > Decimal("0.000"),
+                        or_(
+                            func.upper(BatchLot.status).like("%SERBEST%"),
+                            func.upper(BatchLot.status).like("%APPROVED%")
+                        )
                     )
                 )
                 .order_by(BatchLot.expiration_date.asc().nulls_last(), BatchLot.received_at.asc())
