@@ -1109,6 +1109,9 @@ async def get_order_details(
             "shipping_status": shipping_status,
             "cari_id": o.cari_id,
             "cari_title": o.cari.title if o.cari else "Ege Kimya Dağıtım ve Pazarlama A.Ş.",
+            "is_manual": bool(getattr(o, "is_manual", False)),
+            "notes": getattr(o, "notes", None),
+            "delivery_date": o.delivery_date.strftime("%Y-%m-%d") if getattr(o, "delivery_date", None) else None,
             "bom_ingredients": bom_ingredients
         })
 

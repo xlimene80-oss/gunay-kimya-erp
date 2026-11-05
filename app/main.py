@@ -39,6 +39,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[STARTUP MODULES SEED ERROR] Modules seed notice: {e}")
 
+    # 5. Idempotent seed for demo simulation (departments, demo users, manual POs, HR data, B2B isolation)
+    try:
+        from app.demo_seed import seed_demo_simulation_data
+        await seed_demo_simulation_data()
+    except Exception as e:
+        print(f"[STARTUP DEMO SEED ERROR] Demo seed notice: {e}")
+
     yield
     # Shutdown: Dispose engine connection pool
     await engine.dispose()

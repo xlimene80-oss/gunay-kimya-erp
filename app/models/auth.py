@@ -47,10 +47,12 @@ ALL_MODULES = [
     {"id": "fin_accounts", "name": "Cari Hesaplar", "category": "Finans"},
     {"id": "dashboard", "name": "Raporlar", "category": "Finans"},
     # 7. İnsan Kaynakları
-    {"id": "hr_interviews", "name": "Personel", "category": "İnsan Kaynakları"},
-    {"id": "hr_leave", "name": "İzin", "category": "İnsan Kaynakları"},
+    {"id": "hr_interviews", "name": "İş Başvuruları", "category": "İnsan Kaynakları"},
+    {"id": "hr_personnel", "name": "Personel", "category": "İnsan Kaynakları"},
+    {"id": "hr_leave", "name": "İzinler", "category": "İnsan Kaynakları"},
     {"id": "hr_attendance", "name": "Puantaj", "category": "İnsan Kaynakları"},
-    {"id": "reports_employee", "name": "Personel Raporları", "category": "İnsan Kaynakları"},
+    {"id": "hr_movements", "name": "Personel Hareketleri", "category": "İnsan Kaynakları"},
+    {"id": "reports_employee", "name": "Faaliyet Raporları", "category": "İnsan Kaynakları"},
     # 8. Ayarlar
     {"id": "settings_users", "name": "Kullanıcılar", "category": "Ayarlar"},
     {"id": "settings_permissions", "name": "Yetkiler", "category": "Ayarlar"},
@@ -120,7 +122,7 @@ def get_default_department_permissions(code: str) -> Dict[str, Dict[str, bool]]:
             perms[m]["read"] = True
 
     elif c == "IK":
-        for m in ["hr_interviews", "hr_leave", "hr_attendance", "reports_employee"]:
+        for m in ["hr_interviews", "hr_personnel", "hr_leave", "hr_attendance", "hr_movements", "reports_employee"]:
             perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
 
     elif c == "KALITE":

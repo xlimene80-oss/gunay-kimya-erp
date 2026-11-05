@@ -25,36 +25,31 @@ export const viewMetaMap: Record<string, NavMeta> = {
     badge: 'Canlı 3 Kart'
   },
 
-  // 2. Satış & B2B
-  orders: {
-    group: 'SATIŞ & B2B',
-    item: 'Siparişler',
-    badge: 'Sipariş Giriş'
-  },
-  b2b: {
-    group: 'SATIŞ & B2B',
-    item: 'B2B Bayi Siparişleri',
-    badge: 'Bayi Portalı'
-  },
+  // 2. CRM ve Sipariş
   customers: {
-    group: 'SATIŞ & B2B',
+    group: 'CRM VE SİPARİŞ',
     item: 'Müşteriler',
     badge: 'Cari Kartlar & CRM'
   },
-  logistics: {
-    group: 'SATIŞ & B2B',
-    item: 'Sevkiyat / İrsaliye',
-    badge: 'Çeki & Lojistik'
+  quotes: {
+    group: 'CRM VE SİPARİŞ',
+    item: 'Teklifler',
+    badge: 'Proforma & Satış'
+  },
+  orders: {
+    group: 'CRM VE SİPARİŞ',
+    item: 'Satış Siparişleri',
+    badge: 'Sipariş Giriş'
+  },
+  b2b: {
+    group: 'CRM VE SİPARİŞ',
+    item: 'B2B Bayi Siparişleri',
+    badge: 'Bayi Portalı'
   },
   manual_orders_planning: {
-    group: 'SATIŞ & B2B',
-    item: 'Fiyat Listeleri & Planlama',
+    group: 'CRM VE SİPARİŞ',
+    item: 'Fiyat Listeleri',
     badge: 'Fiyatlandırma'
-  },
-  tracking: {
-    group: 'SATIŞ & B2B',
-    item: 'Sipariş & Sevkiyat Takip',
-    badge: 'İzleme'
   },
 
   // 3. Satın Alma
@@ -65,8 +60,8 @@ export const viewMetaMap: Record<string, NavMeta> = {
   },
   purchasing_requests: {
     group: 'SATIN ALMA',
-    item: 'Satın Alma Siparişleri',
-    badge: 'İç Talepler'
+    item: 'Satın Alma Talepleri / Siparişleri',
+    badge: 'Talepler & Sipariş'
   },
   goods_receipt: {
     group: 'SATIN ALMA',
@@ -74,76 +69,95 @@ export const viewMetaMap: Record<string, NavMeta> = {
     badge: 'e-İrsaliye UBL-TR'
   },
 
-  // 4. Stok & Depo
+  // 4. Envanter
   products_raw_materials: {
-    group: 'STOK & DEPO',
-    item: 'Ürünler',
+    group: 'ENVANTER',
+    item: 'Ürünler (Mamul)',
     badge: 'Master SKU'
   },
   products_sds_warning: {
-    group: 'STOK & DEPO',
-    item: 'Hammaddeler (SDS/ADR)',
+    group: 'ENVANTER',
+    item: 'Hammaddeler (SDS/GHS)',
     badge: 'Tehlikeli Madde'
   },
   inventory_stock: {
-    group: 'STOK & DEPO',
-    item: 'Stok Durumu',
+    group: 'ENVANTER',
+    item: 'Stok Durumu (Lot/FEFO)',
     badge: 'FEFO / Reaktif'
   },
   warehouse_layout: {
-    group: 'STOK & DEPO',
-    item: 'Depo Hareketleri & Yerleşim',
+    group: 'ENVANTER',
+    item: 'Depo Hareketleri',
     badge: 'Hücre / Koridor'
   },
   scanner: {
-    group: 'STOK & DEPO',
-    item: 'Sayım & El Terminali',
+    group: 'ENVANTER',
+    item: 'Sayım / El Terminali',
     badge: 'Barkod Okuyucu'
   },
 
-  // 5. Üretim
+  // 5. Planlama ve Üretim
   factory_dashboard: {
-    group: 'ÜRETİM',
+    group: 'PLANLAMA VE ÜRETİM',
     item: 'Üretim Emirleri',
     badge: 'Canlı Fazlar'
   },
+  mrp: {
+    group: 'PLANLAMA VE ÜRETİM',
+    item: 'Malzeme Planlama (MRP)',
+    badge: 'İhtiyaç Analizi'
+  },
   bom_management: {
-    group: 'ÜRETİM',
-    item: 'Reçeteler',
+    group: 'PLANLAMA VE ÜRETİM',
+    item: 'Reçeteler (BOM)',
     badge: 'BOM Formülasyon'
   },
   pallet_box_center: {
-    group: 'ÜRETİM',
+    group: 'PLANLAMA VE ÜRETİM',
     item: 'Koli / Palet Barkod',
     badge: 'SSCC-18'
   },
   packaging_station: {
-    group: 'ÜRETİM',
-    item: 'Paketleme İstasyonu',
-    badge: 'Hat Sonu'
+    group: 'PLANLAMA VE ÜRETİM',
+    item: 'İş İstasyonu / Parti',
+    badge: 'Hat Sonu & Ambalaj'
   },
-  traceability: {
-    group: 'ÜRETİM',
-    item: 'Kalite & İzlenebilirlik',
-    badge: 'Lot Şeceresi'
-  },
+
+  // 6. Kalite (Üretimden AYRI grup)
   quality_pending: {
-    group: 'ÜRETİM',
-    item: 'Kalite Kontrol Bekleyenler',
+    group: 'KALİTE',
+    item: 'Bekleyen Kalite',
     badge: 'Laboratuvar Onay'
   },
   quality_templates: {
-    group: 'ÜRETİM',
-    item: 'Test Şablonları',
+    group: 'KALİTE',
+    item: 'Kalite Şablonları',
     badge: 'TSE / ISO Standart'
   },
   quality_coas: {
-    group: 'ÜRETİM',
-    item: 'Analiz Sertifikaları',
+    group: 'KALİTE',
+    item: 'CoA Listesi',
     badge: 'COA Belgesi'
   },
+  traceability: {
+    group: 'KALİTE',
+    item: 'İzlenebilirlik',
+    badge: 'Lot Şeceresi'
+  },
 
-  // 6. Finans
+  // 7. Lojistik
+  logistics: {
+    group: 'LOJİSTİK',
+    item: 'Sevkiyat / İrsaliye',
+    badge: 'Çeki & Lojistik'
+  },
+  tracking: {
+    group: 'LOJİSTİK',
+    item: 'Sipariş & Sevkiyat Takip',
+    badge: 'İzleme'
+  },
+
+  // 8. Finans
   fin_invoices: {
     group: 'FİNANS',
     item: 'Faturalar',
@@ -161,24 +175,29 @@ export const viewMetaMap: Record<string, NavMeta> = {
   },
   dashboard: {
     group: 'FİNANS',
-    item: 'Finansal Raporlar',
+    item: 'Raporlar',
+    badge: 'Mali Analitik'
+  },
+  fin_reports: {
+    group: 'FİNANS',
+    item: 'Raporlar',
     badge: 'Mali Analitik'
   },
 
-  // 7. İnsan Kaynakları
+  // 9. İnsan Kaynakları (Sadece Admin)
   hr_interviews: {
     group: 'İNSAN KAYNAKLARI',
-    item: 'Personel & Adaylar',
+    item: 'Personel',
     badge: 'Kadro Yönetimi'
   },
   hr_leave: {
     group: 'İNSAN KAYNAKLARI',
-    item: 'İzin Takibi',
+    item: 'İzin',
     badge: 'Yıllık / Rapor'
   },
   hr_attendance: {
     group: 'İNSAN KAYNAKLARI',
-    item: 'Puantaj & Devam',
+    item: 'Puantaj',
     badge: 'Mesai Kartı'
   },
   reports_employee: {
@@ -187,7 +206,7 @@ export const viewMetaMap: Record<string, NavMeta> = {
     badge: 'Saha & Faaliyet'
   },
 
-  // 8. Ayarlar
+  // 10. Ayarlar (Sadece Admin)
   settings_users: {
     group: 'AYARLAR',
     item: 'Kullanıcılar',
@@ -195,18 +214,18 @@ export const viewMetaMap: Record<string, NavMeta> = {
   },
   settings_permissions: {
     group: 'AYARLAR',
-    item: 'Yetkiler (ACL)',
+    item: 'Yetkiler',
     badge: 'Yetki Matrisi'
   },
   settings_system: {
     group: 'AYARLAR',
-    item: 'Sistem Yapılandırması',
+    item: 'Sistem',
     badge: 'Güvenlik & Zero-Trust'
   },
   user_management: {
     group: 'AYARLAR',
     item: 'Kullanıcı & Yetki Yönetimi',
-    badge: 'Modül 8'
+    badge: 'Sistem'
   }
 };
 

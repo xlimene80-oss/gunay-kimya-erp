@@ -911,9 +911,10 @@ async def login(
         else:
             global_attempt.failed_count = 0
 
-    # 2. Look up user by exact email OR exact user_code
+    # 2. Look up user by exact email OR exact user_code OR Cari title
     stmt = (
         select(User)
+        .outerjoin(CariAccount, User.cari_id == CariAccount.id)
         .options(
             selectinload(User.user_roles).selectinload(UserRole.role),
             selectinload(User.cari),
@@ -922,7 +923,8 @@ async def login(
         .where(
             or_(
                 func.lower(User.email) == ident_key,
-                and_(User.user_code.is_not(None), func.upper(User.user_code) == identity.upper())
+                and_(User.user_code.is_not(None), func.upper(User.user_code) == identity.upper()),
+                and_(User.cari_id.is_not(None), func.lower(CariAccount.title) == ident_key)
             )
         )
     )

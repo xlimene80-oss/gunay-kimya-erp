@@ -88,6 +88,9 @@ class CreateProductionOrderRequest(BaseModel):
     cari_id: Optional[int] = None
     reactor_name: Optional[str] = "Reaktör-01 (Paslanmaz Mikser)"
     initial_phase: Optional[str] = "SIPARIS_ALINDI"
+    is_manual: Optional[bool] = False
+    delivery_date: Optional[datetime.datetime] = None
+    notes: Optional[str] = None
 
 
 @router.get("/products", response_model=List[ProduceableProductItem])
@@ -159,10 +162,11 @@ async def create_new_production_order(
     order_num = payload.order_number
     if not order_num:
         count = (await db.scalar(select(func.count(ProductionOrder.id)))) or 0
-        order_num = f"ORD-2026-{(count + 1):04d}"
+        prefix = "ORD-MAN" if payload.is_manual else "ORD-2026"
+        order_num = f"{prefix}-{(count + 1):04d}"
         existing = await db.scalar(select(ProductionOrder).where(ProductionOrder.order_number == order_num))
         if existing:
-            order_num = f"ORD-2026-{(count + 10):04d}"
+            order_num = f"{prefix}-{(count + 10):04d}"
 
     target_qty = payload.target_quantity if payload.target_quantity > Decimal("0.000") else Decimal("1000.000")
     initial_phase = payload.initial_phase or "SIPARIS_ALINDI"
@@ -176,7 +180,10 @@ async def create_new_production_order(
         cari_id=payload.cari_id or 1,
         reactor_name=payload.reactor_name or "Reaktör-01 (Paslanmaz Mikser)",
         carbon_footprint_kg=Decimal("0.00"),
-        lot_number=f"LOT-2026-GNY{order_num.replace('ORD-', '').replace('-', '')[-4:]}"
+        lot_number=f"LOT-2026-GNY{order_num.replace('ORD-', '').replace('MAN-', '').replace('-', '')[-4:]}",
+        is_manual=payload.is_manual or False,
+        delivery_date=payload.delivery_date,
+        notes=payload.notes
     )
     db.add(new_order)
     await db.commit()
@@ -203,7 +210,8 @@ async def create_new_production_order(
         "phase": loaded_order.phase,
         "target_quantity": float(loaded_order.target_quantity),
         "status": loaded_order.status.value if hasattr(loaded_order.status, "value") else str(loaded_order.status),
-        "product_name": prod_name
+        "product_name": prod_name,
+        "is_manual": loaded_order.is_manual
     }
 
 
@@ -215,8 +223,6 @@ async def validate_production_order_stock(
 ):
     """
     Validates that all raw materials in the BOM have sufficient APPROVED stock in warehouse.
-    If even 1 gram is deficient, throws HTTP 400 Bad Request with the required message:
-    'Hata: Üretim Engellendi! Yetersiz Onaylı Stok. Eksik Bileşen: [Hammadde_Adi] (Gereken: X kg, Kullanılabilir Onaylı Stok: Y kg)'
     """
     stmt = (
         select(ProductionOrder)
@@ -255,7 +261,6 @@ async def trigger_fefo_consumption_endpoint(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar hammadde sarfiyatı tetikleyemez.")
     """
     Executes dynamic FEFO stock deduction and records exact USD production costs.
-    If approved stock is insufficient, transaction is rolled back and HTTP 400 is returned.
     """
     stmt = (
         select(ProductionOrder)
@@ -304,10 +309,6 @@ async def complete_production_order_endpoint(
 ):
     if current_user.role == UserRoleEnum.CUSTOMER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar üretim emrini kapatamaz.")
-    """
-    Completes production order with full BOM validation and USD costing.
-    If FEFO consumption hasn't occurred yet, executes it with quality validation.
-    """
     stmt = (
         select(ProductionOrder)
         .options(
@@ -359,9 +360,6 @@ async def get_order_cost_breakdown(
 ):
     if current_user.role == UserRoleEnum.CUSTOMER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar maliyet dökümünü görüntüleyemez.")
-    """
-    Returns itemized USD ($) cost breakdown of raw materials consumed for a production order.
-    """
     stmt = (
         select(ProductionOrder)
         .options(
@@ -425,11 +423,7 @@ async def get_production_cost_analytics(
 ):
     if current_user.role == UserRoleEnum.CUSTOMER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: B2B Müşteri rolündeki kullanıcılar üretim analizlerini görüntüleyemez.")
-    """
-    Finance dashboard metrics for production material costing in USD ($).
-    Provides aggregated spend, average unit cost, raw chemical breakdown, and recent orders.
-    """
-    # 1. Total spend and volume from completed orders
+
     orders_stmt = (
         select(ProductionOrder)
         .options(
@@ -444,7 +438,6 @@ async def get_production_cost_analytics(
     total_volume = sum((o.target_quantity for o in completed_orders), Decimal("0.0000"))
     avg_unit_cost = total_spend / total_volume if total_volume > Decimal("0.000") else Decimal("0.0000")
 
-    # 2. Ingredient spend breakdown
     cons_stmt = (
         select(
             Item.name,
@@ -469,7 +462,6 @@ async def get_production_cost_analytics(
         for r in ing_rows
     ]
 
-    # 3. Recent order costs
     recent_order_costs = []
     for o in completed_orders[:limit]:
         p_name = o.recipe.output_item.name if (o.recipe and o.recipe.output_item) else "Kimyasal Ürün"

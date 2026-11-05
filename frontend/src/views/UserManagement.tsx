@@ -285,6 +285,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
       return;
     }
 
+    if (userModalMode === 'STAFF' && !userDeptId) {
+      setFormError('Şirket Elemanı için Departman seçimi zorunludur.');
+      return;
+    }
+
     setFormSaving(true);
     try {
       if (editingUserId) {

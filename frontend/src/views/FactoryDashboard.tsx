@@ -69,6 +69,9 @@ interface FactoryOrder {
   shipping_status: string;
   cari_id?: number;
   cari_title?: string;
+  is_manual?: boolean;
+  delivery_date?: string;
+  notes?: string;
   bom_ingredients?: BomIngredient[];
 }
 
@@ -101,6 +104,9 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
   const [orderQuantity, setOrderQuantity] = useState<number>(1000);
   const [selectedReactor, setSelectedReactor] = useState<string>("Reaktör-01 (Paslanmaz Mikser - 5000L)");
   const [submittingOrder, setSubmittingOrder] = useState<boolean>(false);
+  const [selectedCariTitle, setSelectedCariTitle] = useState<string>("Ege Kimya Dağıtım ve Pazarlama A.Ş.");
+  const [orderDeliveryDate, setOrderDeliveryDate] = useState<string>(new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0]);
+  const [orderNotes, setOrderNotes] = useState<string>("");
 
   const fetchProducts = async () => {
     try {
@@ -186,7 +192,10 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
         recipe_id: selProd?.recipe_id,
         target_quantity: Number(orderQuantity) || 1000,
         reactor_name: selectedReactor,
-        initial_phase: 'SIPARIS_ALINDI'
+        initial_phase: 'SIPARIS_ALINDI',
+        is_manual: true,
+        delivery_date: orderDeliveryDate ? `${orderDeliveryDate}T00:00:00` : undefined,
+        notes: orderNotes.trim() || undefined
       });
 
       const newOrderData = res.data?.data;
@@ -368,7 +377,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md hover:shadow-lg transition flex items-center gap-2 text-xs font-bold"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            + Yeni Üretim Emri Oluştur
+            + Manuel Üretim Emri
           </button>
           <button
             onClick={fetchOrders}
@@ -591,9 +600,16 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-mono font-bold text-text">
-                      {o.order_number || `ORD-00${o.order_no}`}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-mono font-bold text-text">
+                        {o.order_number || `ORD-00${o.order_no}`}
+                      </span>
+                      {o.is_manual && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          Manuel
+                        </span>
+                      )}
+                    </div>
                     <span
                       className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                         o.phase === 'SEVK_EDILDI' || o.phase === 'PAKETLEME_HAZIR'
@@ -948,7 +964,7 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-text">Yeni Üretim Emri Oluştur</h3>
+                  <h3 className="text-base font-bold text-text">Manuel Üretim Emri Oluştur</h3>
                   <p className="text-xs text-text-muted">Reçeteli mamul seçimi ve reaktör planlaması</p>
                 </div>
               </div>
@@ -1029,6 +1045,48 @@ export const FactoryDashboard: React.FC<FactoryDashboardProps> = ({ onNavigate }
                   <option value="Reaktör-03 (Isıtmalı Çift Cidarlı Kazan - 2500L)">Reaktör-03 (Isıtmalı Çift Cidarlı Kazan - 2500L)</option>
                   <option value="Dolum ve Karıştırma Tankı B-4">Dolum ve Karıştırma Tankı B-4</option>
                 </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-text mb-1.5">
+                    Müşteri (Cari)
+                  </label>
+                  <select
+                    value={selectedCariTitle}
+                    onChange={(e) => setSelectedCariTitle(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-text text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  >
+                    <option value="Ege Kimya Dağıtım ve Pazarlama A.Ş.">Ege Kimya Dağıtım ve Pazarlama A.Ş.</option>
+                    <option value="Marmara Boya Sanayi A.Ş.">Marmara Boya Sanayi A.Ş.</option>
+                    <option value="Genel Üretim / Stok">Genel Üretim / Stok</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-text mb-1.5">
+                    Teslim Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    value={orderDeliveryDate}
+                    onChange={(e) => setOrderDeliveryDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-text text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-text mb-1.5">
+                  Sipariş / Üretim Notu
+                </label>
+                <input
+                  type="text"
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
+                  placeholder="Özel tolerans, ambalaj veya acil teslimat notu..."
+                  className="w-full px-3.5 py-2.5 bg-bg border border-border rounded-xl text-text text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
               </div>
 
               <div className="pt-4 border-t border-border flex items-center justify-end gap-3">

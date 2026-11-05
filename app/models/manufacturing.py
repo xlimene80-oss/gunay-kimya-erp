@@ -141,6 +141,11 @@ class ProductionOrder(Base, TimestampMixin):
         nullable=True
     )
 
+    # Manual order & Delivery metadata
+    is_manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    delivery_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     recipe: Mapped["Recipe"] = relationship("Recipe", back_populates="production_orders", lazy="selectin")
     cari: Mapped[Optional["CariAccount"]] = relationship("CariAccount", foreign_keys=[cari_id], lazy="selectin")

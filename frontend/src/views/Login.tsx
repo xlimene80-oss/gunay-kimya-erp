@@ -32,7 +32,7 @@ export const Login: React.FC = () => {
     if (trimmed.startsWith('b2b-') || /^b2b\d+/.test(trimmed)) {
       return 'b2b';
     }
-    if (trimmed.includes('@')) {
+    if (trimmed.includes('@') || /^(adm|sat|alm|urt|dep|muh|ik|gk)-/i.test(trimmed)) {
       return 'staff';
     }
     return 'empty';

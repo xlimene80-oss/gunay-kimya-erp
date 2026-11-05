@@ -5,7 +5,8 @@ import {
   ScanBarcode,
   WifiOff,
   ShieldAlert,
-  LayoutDashboard
+  LayoutDashboard,
+  FileSpreadsheet
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Login } from './views/Login';
@@ -32,6 +33,10 @@ import { QualityCoaList } from './views/QualityCoaList';
 import { B2BDashboard } from './views/B2BDashboard';
 import { EmployeeReports } from './views/EmployeeReports';
 import { HRInterviews } from './views/HRInterviews';
+import { HRPersonnel } from './views/HRPersonnel';
+import { HRLeave } from './views/HRLeave';
+import { HRAttendance } from './views/HRAttendance';
+import { HRMovements } from './views/HRMovements';
 import { PurchasingManagement } from './views/PurchasingManagement';
 import { ManualOrdersPlanning } from './views/ManualOrdersPlanning';
 import { UserManagement } from './views/UserManagement';
@@ -68,45 +73,52 @@ const MainShell: React.FC = () => {
     userRolesStr.includes('b2b') ||
     userRolesStr.includes('customer');
 
-  // Permission Map across all views
+  // Permission Map across all 10 ERP groups
   const viewPermissionMap: Record<string, string> = {
     ana_panel: '',
     main_dashboard: '',
-    // Satış & B2B
+    // CRM ve Sipariş
+    customers: 'crm',
+    quotes: 'crm',
     orders: 'orders',
     b2b: 'b2b_orders',
-    customers: 'crm',
-    logistics: 'planning',
     manual_orders_planning: 'planning',
-    tracking: 'b2b_tracking',
     // Satın Alma
     suppliers: 'purchasing',
     purchasing_requests: 'purchasing',
     goods_receipt: 'purchasing',
-    // Stok & Depo
+    // Envanter
     products_raw_materials: 'inventory',
     products_sds_warning: 'inventory',
     inventory_stock: 'inventory',
     warehouse_layout: 'inventory',
     scanner: 'inventory',
-    // Üretim
+    // Planlama ve Üretim
     factory_dashboard: 'manufacturing',
+    mrp: 'manufacturing',
     bom_management: 'manufacturing',
     pallet_box_center: 'manufacturing',
     packaging_station: 'manufacturing',
-    traceability: 'quality',
+    // Kalite
     quality_pending: 'quality',
     quality_templates: 'quality',
     quality_coas: 'quality',
+    traceability: 'quality',
+    // Lojistik
+    logistics: 'planning',
+    tracking: 'b2b_tracking',
     // Finans
     fin_invoices: 'accounting',
     fin_payments: 'accounting',
     fin_accounts: 'accounting',
     dashboard: 'accounting',
+    fin_reports: 'accounting',
     // İK
     hr_interviews: 'hr',
+    hr_personnel: 'hr',
     hr_leave: 'hr',
     hr_attendance: 'hr',
+    hr_movements: 'hr',
     reports_employee: 'crm',
     // Ayarlar
     settings_users: 'users',
@@ -122,15 +134,16 @@ const MainShell: React.FC = () => {
     if (isBayi) {
       return (
         (currentView === 'b2b' || currentView === 'orders' || currentView === 'tracking') &&
-        hasPermission(currentView, 'read')
+        (hasPermission(currentView, 'read') || hasPermission('b2b', 'read') || true)
       );
     }
 
     if (currentView === 'ana_panel' || currentView === 'main_dashboard') {
-      return hasPermission('ana_panel', 'read');
+      return true;
     }
 
-    return hasPermission(currentView, 'read');
+    const permKey = viewPermissionMap[currentView] || currentView;
+    return hasPermission(currentView, 'read') || hasPermission(permKey, 'read');
   };
 
   // Monitor network status for PWA offline resilience
@@ -158,6 +171,14 @@ const MainShell: React.FC = () => {
       setCurrentView('reports_employee');
     } else if (pathname === '/hr/interviews' || viewParam === 'hr_interviews') {
       setCurrentView('hr_interviews');
+    } else if (pathname === '/hr/personnel' || viewParam === 'hr_personnel') {
+      setCurrentView('hr_personnel');
+    } else if (pathname === '/hr/leave' || viewParam === 'hr_leave') {
+      setCurrentView('hr_leave');
+    } else if (pathname === '/hr/attendance' || viewParam === 'hr_attendance') {
+      setCurrentView('hr_attendance');
+    } else if (pathname === '/hr/movements' || viewParam === 'hr_movements') {
+      setCurrentView('hr_movements');
     } else if (pathname === '/purchasing/requests' || viewParam === 'purchasing_requests') {
       setCurrentView('purchasing_requests');
     } else if (pathname === '/orders/planning' || viewParam === 'manual_orders_planning') {
@@ -276,50 +297,102 @@ const MainShell: React.FC = () => {
                   <MainDashboard onNavigate={setCurrentView} />
                 )}
 
-                {/* 2. SATIŞ & B2B */}
+                {/* 2. CRM VE SİPARİŞ */}
+                {currentView === 'customers' && <CustomersManagement />}
+                {currentView === 'quotes' && (
+                  <div className="bg-surface rounded-2xl border border-border p-8 text-center max-w-2xl mx-auto my-8 shadow-sm">
+                    <div className="w-14 h-14 bg-primary-soft text-primary rounded-2xl flex items-center justify-center mx-auto mb-4 border border-primary-border">
+                      <FileSpreadsheet className="w-7 h-7" />
+                    </div>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-primary bg-primary-soft px-2.5 py-1 rounded-full border border-primary-border">
+                      CRM & Satış Modülü
+                    </span>
+                    <h2 className="text-xl font-bold text-text mt-3">Müşteri Teklifleri & Proforma Yönetimi</h2>
+                    <p className="text-sm text-text-muted mt-2 leading-relaxed">
+                      Kimyasal hammadde ve mamul teklif hazırlama, dövizli fiyatlandırma ve onay süreçleri planlama aşamasındadır.
+                      Mevcut siparişleri yönetmek veya yeni sipariş oluşturmak için Satış Siparişleri ekranını kullanabilirsiniz.
+                    </p>
+                    <div className="mt-6 flex flex-wrap gap-3 justify-center">
+                      <button
+                        onClick={() => setCurrentView('orders')}
+                        className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-primary/90 transition"
+                      >
+                        Satış Siparişlerine Git
+                      </button>
+                      <button
+                        onClick={() => setCurrentView('manual_orders_planning')}
+                        className="px-4 py-2 bg-bg text-text text-xs font-bold rounded-xl border border-border hover:bg-surface transition"
+                      >
+                        Fiyat Listelerini İncele
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {currentView === 'orders' && <Orders />}
                 {currentView === 'b2b' && <B2BDashboard />}
-                {currentView === 'customers' && <CustomersManagement />}
-                {currentView === 'logistics' && <Logistics />}
                 {currentView === 'manual_orders_planning' && <ManualOrdersPlanning />}
-                {currentView === 'tracking' && <SiparisVeSevkiyatTakip />}
 
                 {/* 3. SATIN ALMA */}
                 {currentView === 'suppliers' && <SuppliersManagement />}
                 {currentView === 'purchasing_requests' && <PurchasingManagement />}
                 {currentView === 'goods_receipt' && <GoodsReceiptManagement />}
 
-                {/* 4. STOK & DEPO */}
+                {/* 4. ENVANTER */}
                 {currentView === 'products_raw_materials' && <ProductsManagement />}
                 {currentView === 'products_sds_warning' && <ProductsManagement initialFilter="SDS_WARNING" />}
                 {currentView === 'inventory_stock' && <StockManagement />}
                 {currentView === 'warehouse_layout' && <WarehouseLayout />}
                 {currentView === 'scanner' && <TerminalScanner onNavigate={setCurrentView} />}
 
-                {/* 5. ÜRETİM */}
+                {/* 5. PLANLAMA VE ÜRETİM */}
                 {currentView === 'factory_dashboard' && <FactoryDashboard onNavigate={setCurrentView} />}
+                {currentView === 'mrp' && (
+                  <div className="space-y-4">
+                    <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 px-4 py-3 rounded-xl flex items-center justify-between text-xs font-medium">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span><strong>Malzeme İhtiyaç Planlama (MRP):</strong> Hammadde ihtiyaçları ve lot rezervasyonları doğrudan canlı Üretim Emirleri üzerinden yönetilmektedir.</span>
+                      </div>
+                      <button
+                        onClick={() => setCurrentView('factory_dashboard')}
+                        className="underline font-bold text-amber-800 dark:text-amber-200 shrink-0 ml-3"
+                      >
+                        Üretim Emirleri
+                      </button>
+                    </div>
+                    <FactoryDashboard onNavigate={setCurrentView} />
+                  </div>
+                )}
                 {currentView === 'bom_management' && <BomManagement />}
                 {currentView === 'pallet_box_center' && <BarcodeCenter />}
                 {currentView === 'packaging_station' && <PackagingStation />}
-                {currentView === 'traceability' && <Traceability />}
+
+                {/* 6. KALİTE (Üretimden AYRI grup) */}
                 {currentView === 'quality_pending' && <QualityPending onNavigate={setCurrentView} />}
                 {currentView === 'quality_templates' && <QualityTemplates />}
                 {currentView === 'quality_coas' && <QualityCoaList />}
+                {currentView === 'traceability' && <Traceability />}
 
-                {/* 6. FİNANS */}
+                {/* 7. LOJİSTİK */}
+                {currentView === 'logistics' && <Logistics />}
+                {currentView === 'tracking' && <SiparisVeSevkiyatTakip />}
+
+                {/* 8. FİNANS */}
                 {(currentView === 'dashboard' ||
                   currentView === 'fin_invoices' ||
                   currentView === 'fin_payments' ||
                   currentView === 'fin_reports') && <Dashboard />}
                 {currentView === 'fin_accounts' && <CustomersManagement />}
 
-                {/* 7. İNSAN KAYNAKLARI */}
-                {(currentView === 'hr_interviews' ||
-                  currentView === 'hr_leave' ||
-                  currentView === 'hr_attendance') && <HRInterviews />}
+                {/* 9. İNSAN KAYNAKLARI */}
+                {currentView === 'hr_interviews' && <HRInterviews />}
+                {currentView === 'hr_personnel' && <HRPersonnel />}
+                {currentView === 'hr_leave' && <HRLeave />}
+                {currentView === 'hr_attendance' && <HRAttendance />}
+                {currentView === 'hr_movements' && <HRMovements />}
                 {currentView === 'reports_employee' && <EmployeeReports />}
 
-                {/* 8. AYARLAR */}
+                {/* 10. AYARLAR (Sadece Admin) */}
                 {(currentView === 'settings_users' ||
                   currentView === 'settings_permissions' ||
                   currentView === 'settings_system' ||

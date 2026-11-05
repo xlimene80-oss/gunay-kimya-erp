@@ -59,6 +59,10 @@ def enrich_response(req: PurchaseRequest) -> PurchaseRequestResponse:
         quantity=req.quantity,
         unit=req.unit,
         status=req.status,
+        supplier_name=req.supplier_name,
+        unit_price=req.unit_price,
+        delivery_date=req.delivery_date,
+        is_manual=req.is_manual,
         vendor_email=req.vendor_email,
         vendor_phone=req.vendor_phone,
         notes=req.notes,
@@ -76,7 +80,7 @@ async def create_purchase_request(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Staff internal purchase requisition creation.
+    Staff internal purchase requisition creation or manual purchase order creation.
     """
     if current_user.role == UserRoleEnum.CUSTOMER:
         raise HTTPException(
@@ -89,7 +93,11 @@ async def create_purchase_request(
         item_name=req_in.item_name,
         quantity=req_in.quantity,
         unit=req_in.unit,
-        status="Onay Bekliyor",
+        status=req_in.status or "Taslak",
+        supplier_name=req_in.supplier_name,
+        unit_price=req_in.unit_price,
+        delivery_date=req_in.delivery_date,
+        is_manual=True,
         vendor_email=req_in.vendor_email,
         vendor_phone=req_in.vendor_phone,
         notes=req_in.notes
@@ -104,19 +112,19 @@ async def create_purchase_request(
 @router.get("/requests", response_model=List[PurchaseRequestResponse])
 async def list_purchase_requests(
     status_filter: Optional[str] = Query(None, alias="status"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    List all internal procurement requisitions.
+    List all internal procurement requisitions and purchase orders.
     """
     if current_user.role == UserRoleEnum.CUSTOMER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim.")
 
     stmt = select(PurchaseRequest).order_by(desc(PurchaseRequest.created_at))
-    if status_filter:
+    if status_filter and status_filter != "ALL":
         stmt = stmt.where(PurchaseRequest.status == status_filter)
 
     stmt = stmt.offset(offset).limit(limit)
@@ -131,6 +139,9 @@ async def get_purchase_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if current_user.role == UserRoleEnum.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim.")
+
     stmt = select(PurchaseRequest).where(PurchaseRequest.id == request_id)
     res = await db.execute(stmt)
     req = res.scalar_one_or_none()
@@ -147,7 +158,7 @@ async def update_purchase_request(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Update request details or approval status ('Onay Bekliyor', 'Onaylandı', 'Satınalma Yapıldı', 'Reddedildi').
+    Update request details or status: 'Taslak', 'Onaylandı', 'Sipariş Verildi', 'Mal Kabul Bekliyor', 'Reddedildi'.
     """
     if current_user.role == UserRoleEnum.CUSTOMER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim.")
@@ -164,6 +175,12 @@ async def update_purchase_request(
         req.quantity = req_in.quantity
     if req_in.unit is not None:
         req.unit = req_in.unit
+    if req_in.supplier_name is not None:
+        req.supplier_name = req_in.supplier_name
+    if req_in.unit_price is not None:
+        req.unit_price = req_in.unit_price
+    if req_in.delivery_date is not None:
+        req.delivery_date = req_in.delivery_date
     if req_in.status is not None:
         req.status = req_in.status
     if req_in.vendor_email is not None:
@@ -184,9 +201,6 @@ async def get_request_whatsapp_link(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Generates sanitized direct WhatsApp URL & prefilled RFQ message for quick dispatch to chemical vendor.
-    """
     stmt = select(PurchaseRequest).where(PurchaseRequest.id == request_id)
     res = await db.execute(stmt)
     req = res.scalar_one_or_none()

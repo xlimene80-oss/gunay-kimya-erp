@@ -78,6 +78,21 @@ async def run_all_migrations():
         order_cols = [
             ("total_material_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
             ("unit_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+            ("is_manual", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
+            ("delivery_date", "TIMESTAMP", "TIMESTAMP"),
+            ("notes", "TEXT", "TEXT"),
+        ]
+
+        purchasing_cols = [
+            ("supplier_name", "VARCHAR(255)", "VARCHAR(255)"),
+            ("unit_price", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+            ("delivery_date", "TIMESTAMP", "TIMESTAMP"),
+            ("is_manual", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
+            ("notes", "TEXT", "TEXT"),
+        ]
+
+        interview_cols = [
+            ("department", "VARCHAR(50)", "VARCHAR(50)"),
         ]
 
         consumption_cols = [
@@ -161,6 +176,18 @@ async def run_all_migrations():
                 for col_name, _, sqlite_def in consumption_cols:
                     if col_name not in existing_cons_cols:
                         await run_isolated_step(f"ALTER TABLE mfg_production_ingredient_consumptions ADD COLUMN {col_name} {sqlite_def}", f"mfg_production_ingredient_consumptions.{col_name} (SQLite)")
+
+                res_purchasing = await conn.execute(text("PRAGMA table_info(purchase_requests)"))
+                existing_purchasing_cols = [r[1] for r in res_purchasing.fetchall()]
+                for col_name, _, sqlite_def in purchasing_cols:
+                    if col_name not in existing_purchasing_cols:
+                        await run_isolated_step(f"ALTER TABLE purchase_requests ADD COLUMN {col_name} {sqlite_def}", f"purchase_requests.{col_name} (SQLite)")
+
+                res_interviews = await conn.execute(text("PRAGMA table_info(hr_interviews)"))
+                existing_interview_cols = [r[1] for r in res_interviews.fetchall()]
+                for col_name, _, sqlite_def in interview_cols:
+                    if col_name not in existing_interview_cols:
+                        await run_isolated_step(f"ALTER TABLE hr_interviews ADD COLUMN {col_name} {sqlite_def}", f"hr_interviews.{col_name} (SQLite)")
             else:
                 # PostgreSQL Branch: Each DDL executed in its own isolated transaction block
                 # Step 2a (PostgreSQL): PRIORITY 1 - user_code column & index
@@ -199,6 +226,12 @@ async def run_all_migrations():
 
                 for col_name, pg_def, _ in consumption_cols:
                     await run_isolated_step(f"ALTER TABLE mfg_production_ingredient_consumptions ADD COLUMN IF NOT EXISTS {col_name} {pg_def}", f"mfg_production_ingredient_consumptions.{col_name}")
+
+                for col_name, pg_def, _ in purchasing_cols:
+                    await run_isolated_step(f"ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS {col_name} {pg_def}", f"purchase_requests.{col_name}")
+
+                for col_name, pg_def, _ in interview_cols:
+                    await run_isolated_step(f"ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS {col_name} {pg_def}", f"hr_interviews.{col_name}")
 
             await conn.commit()
 

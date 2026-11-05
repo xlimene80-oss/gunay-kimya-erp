@@ -27,6 +27,8 @@ import {
   FileText,
   UserCheck,
   Sliders,
+  FileSpreadsheet,
+  PackageCheck,
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -54,6 +56,59 @@ interface SidebarProps {
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
 }
+
+const viewPermissionMap: Record<string, string> = {
+  ana_panel: 'ana_panel',
+  main_dashboard: 'ana_panel',
+  // CRM ve Sipariş
+  customers: 'crm',
+  quotes: 'crm',
+  orders: 'orders',
+  b2b: 'b2b_orders',
+  manual_orders_planning: 'planning',
+  // Satın Alma
+  suppliers: 'purchasing',
+  purchasing_requests: 'purchasing',
+  goods_receipt: 'purchasing',
+  // Envanter
+  products_raw_materials: 'inventory',
+  products_sds_warning: 'inventory',
+  inventory_stock: 'inventory',
+  warehouse_layout: 'inventory',
+  scanner: 'inventory',
+  // Planlama ve Üretim
+  factory_dashboard: 'manufacturing',
+  mrp: 'manufacturing',
+  bom_management: 'manufacturing',
+  pallet_box_center: 'manufacturing',
+  packaging_station: 'manufacturing',
+  // Kalite
+  quality_pending: 'quality',
+  quality_templates: 'quality',
+  quality_coas: 'quality',
+  traceability: 'quality',
+  // Lojistik
+  logistics: 'planning',
+  tracking: 'b2b_tracking',
+  // Finans
+  fin_invoices: 'accounting',
+  fin_payments: 'accounting',
+  fin_accounts: 'accounting',
+  dashboard: 'accounting',
+  fin_reports: 'accounting',
+  // İK
+  hr_interviews: 'hr',
+  hr_personnel: 'hr',
+  hr_leave: 'hr',
+  hr_attendance: 'hr',
+  hr_movements: 'hr',
+  reports_employee: 'hr',
+  // Ayarlar
+  settings_users: 'users',
+  settings_permissions: 'users',
+  settings_system: 'users',
+  user_management: 'users'
+};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
@@ -87,11 +142,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     userRolesStr.includes('customer');
 
   let panelSubtitle = 'B2B Bayi Portalı';
-  if (isAdmin) panelSubtitle = 'Endüstriyel ERP Kontrol';
+  if (isAdmin) panelSubtitle = 'Endüstriyel Kimya ERP';
   else if (isOperator) panelSubtitle = 'Üretim Terminali';
   else if (isMuhasebe) panelSubtitle = 'Muhasebe & Finans';
 
-  // EXACT 8 HEADINGS IN EXACT SPECIFIED ORDER
+  // EXACT 10 GROUPS ACCORDING TO CHEMICAL MANUFACTURING ERP SPECIFICATION
   const menuGroups: MenuGroup[] = [
     // 1. Ana Panel (Doğrudan ana sayfayı açar, alt menüsü yok)
     {
@@ -103,18 +158,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       roles: ['admin', 'staff', 'muhasebe', 'depo', 'uretim', 'bayi'],
       items: []
     },
-    // 2. Satış & B2B
+    // 2. CRM ve Sipariş
     {
-      id: 'sales_b2b',
-      title: 'Satış & B2B',
+      id: 'crm_orders',
+      title: 'CRM ve Sipariş',
       icon: ShoppingCart,
       roles: ['admin', 'muhasebe', 'staff', 'bayi', 'customer'],
       items: [
-        { id: 'orders', label: 'Siparişler', icon: ShoppingBag, roles: ['admin', 'staff', 'muhasebe', 'bayi'] },
-        { id: 'b2b', label: 'B2B Bayi Siparişleri', icon: Building2, roles: ['admin', 'bayi', 'customer', 'staff', 'muhasebe'] },
         { id: 'customers', label: 'Müşteriler', icon: Users, roles: ['admin', 'staff', 'muhasebe'] },
-        { id: 'logistics', label: 'Sevkiyat / İrsaliye', icon: Truck, roles: ['admin', 'staff', 'muhasebe', 'depo'] },
-        { id: 'manual_orders_planning', label: 'Fiyat Listeleri', icon: Calendar, roles: ['admin', 'staff', 'muhasebe'] }
+        { id: 'quotes', label: 'Teklifler', icon: FileSpreadsheet, roles: ['admin', 'staff', 'muhasebe'] },
+        { id: 'orders', label: 'Satış Siparişleri', icon: ShoppingBag, roles: ['admin', 'staff', 'muhasebe', 'bayi'] },
+        { id: 'b2b', label: 'B2B Bayi Siparişleri', icon: Building2, roles: ['admin', 'bayi', 'customer', 'staff', 'muhasebe'] },
+        { id: 'manual_orders_planning', label: 'Manuel Sipariş / Planlama', icon: Calendar, roles: ['admin', 'staff', 'muhasebe'] }
       ]
     },
     // 3. Satın Alma
@@ -125,38 +180,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
       roles: ['admin', 'staff', 'depo', 'muhasebe'],
       items: [
         { id: 'suppliers', label: 'Tedarikçiler', icon: Building2, roles: ['admin', 'staff', 'depo', 'muhasebe'] },
-        { id: 'purchasing_requests', label: 'Satın Alma Siparişleri', icon: Briefcase, roles: ['admin', 'staff', 'depo', 'muhasebe'] },
+        { id: 'purchasing_requests', label: 'Satın Alma Talepleri / Siparişleri', icon: Briefcase, roles: ['admin', 'staff', 'depo', 'muhasebe'] },
         { id: 'goods_receipt', label: 'Mal Kabul', icon: FileCheck2, roles: ['admin', 'depo', 'staff', 'muhasebe'] }
       ]
     },
-    // 4. Stok & Depo
+    // 4. Envanter
     {
-      id: 'inventory_warehouse',
-      title: 'Stok & Depo',
+      id: 'inventory',
+      title: 'Envanter',
       icon: Boxes,
       roles: ['admin', 'depo', 'staff'],
       items: [
-        { id: 'products_raw_materials', label: 'Ürünler', icon: Layers, roles: ['admin', 'depo', 'staff'] },
-        { id: 'products_sds_warning', label: 'Hammaddeler', icon: FlaskConical, roles: ['admin', 'depo', 'staff'] },
-        { id: 'inventory_stock', label: 'Stok Durumu', icon: Package, roles: ['admin', 'depo', 'staff'] },
+        { id: 'products_raw_materials', label: 'Ürünler (Mamul)', icon: Layers, roles: ['admin', 'depo', 'staff'] },
+        { id: 'products_sds_warning', label: 'Hammaddeler (SDS/GHS)', icon: FlaskConical, roles: ['admin', 'depo', 'staff'] },
+        { id: 'inventory_stock', label: 'Stok Durumu (Lot/FEFO)', icon: Package, roles: ['admin', 'depo', 'staff'] },
         { id: 'warehouse_layout', label: 'Depo Hareketleri', icon: Warehouse, roles: ['admin', 'depo'] },
-        { id: 'scanner', label: 'Sayım', icon: ScanBarcode, roles: ['admin', 'depo'] }
+        { id: 'scanner', label: 'Sayım / El Terminali', icon: ScanBarcode, roles: ['admin', 'depo'] }
       ]
     },
-    // 5. Üretim
+    // 5. Planlama ve Üretim
     {
-      id: 'manufacturing',
-      title: 'Üretim',
+      id: 'manufacturing_planning',
+      title: 'Planlama ve Üretim',
       icon: Factory,
       roles: ['admin', 'uretim', 'operator', 'fabrika_muduru', 'depo'],
       items: [
-        { id: 'factory_dashboard', label: 'Üretim Emirleri', icon: Activity, roles: ['admin', 'uretim', 'fabrika_muduru'] },
-        { id: 'bom_management', label: 'Reçeteler', icon: FlaskConical, roles: ['admin', 'fabrika_muduru'] },
+        { id: 'factory_dashboard', label: 'Üretim Emirleri', icon: Activity, roles: ['admin', 'uretim', 'operator', 'fabrika_muduru'] },
+        { id: 'mrp', label: 'Malzeme Planlama (MRP)', icon: Layers, roles: ['admin', 'uretim', 'fabrika_muduru'] },
+        { id: 'bom_management', label: 'Reçeteler (BOM)', icon: FlaskConical, roles: ['admin', 'fabrika_muduru', 'uretim'] },
         { id: 'pallet_box_center', label: 'Koli / Palet Barkod', icon: Barcode, roles: ['admin', 'uretim', 'operator', 'depo', 'fabrika_muduru'] },
-        { id: 'traceability', label: 'Kalite & İzlenebilirlik', icon: ShieldAlert, roles: ['admin', 'uretim', 'fabrika_muduru'] }
+        { id: 'packaging_station', label: 'İş İstasyonu / Parti', icon: PackageCheck, roles: ['admin', 'uretim', 'operator', 'fabrika_muduru'] }
       ]
     },
-    // 6. Finans
+    // 6. Kalite (Üretimden AYRI grup)
+    {
+      id: 'quality_management',
+      title: 'Kalite',
+      icon: ShieldCheck,
+      roles: ['admin', 'uretim', 'fabrika_muduru', 'staff', 'kalite'],
+      items: [
+        { id: 'quality_pending', label: 'Bekleyen Kalite', icon: Activity, roles: ['admin', 'uretim', 'fabrika_muduru', 'staff', 'kalite'] },
+        { id: 'quality_templates', label: 'Kalite Şablonları', icon: FileCheck2, roles: ['admin', 'fabrika_muduru', 'kalite'] },
+        { id: 'quality_coas', label: 'CoA Listesi', icon: FileText, roles: ['admin', 'uretim', 'fabrika_muduru', 'staff', 'kalite'] },
+        { id: 'traceability', label: 'İzlenebilirlik', icon: ShieldAlert, roles: ['admin', 'uretim', 'fabrika_muduru', 'staff', 'kalite'] }
+      ]
+    },
+    // 7. Lojistik
+    {
+      id: 'logistics_group',
+      title: 'Lojistik',
+      icon: Truck,
+      roles: ['admin', 'staff', 'muhasebe', 'depo', 'bayi', 'customer'],
+      items: [
+        { id: 'logistics', label: 'Sevkiyat / İrsaliye', icon: Truck, roles: ['admin', 'staff', 'muhasebe', 'depo'] },
+        { id: 'tracking', label: 'Sipariş & Sevkiyat Takip', icon: Activity, roles: ['admin', 'staff', 'muhasebe', 'depo', 'bayi', 'customer'] }
+      ]
+    },
+    // 8. Finans
     {
       id: 'finance',
       title: 'Finans',
@@ -169,20 +249,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'dashboard', label: 'Raporlar', icon: LayoutDashboard, roles: ['admin', 'muhasebe'] }
       ]
     },
-    // 7. İnsan Kaynakları (Sadece Admin / Firma Sahibi)
+    // 9. İnsan Kaynakları (Admin ve İK Departmanı)
     {
       id: 'human_resources',
       title: 'İnsan Kaynakları',
       icon: Users,
-      roles: ['admin'],
+      roles: ['admin', 'ik', 'staff'],
       items: [
-        { id: 'hr_interviews', label: 'Personel', icon: Users, roles: ['admin'] },
-        { id: 'hr_leave', label: 'İzin', icon: Calendar, roles: ['admin'] },
-        { id: 'hr_attendance', label: 'Puantaj', icon: UserCheck, roles: ['admin'] },
-        { id: 'reports_employee', label: 'Personel Raporları', icon: FileText, roles: ['admin'] }
+        { id: 'hr_interviews', label: 'İş Başvuruları', icon: Users, roles: ['admin', 'ik', 'staff'] },
+        { id: 'hr_personnel', label: 'Personel', icon: UserCheck, roles: ['admin', 'ik', 'staff'] },
+        { id: 'hr_leave', label: 'İzinler', icon: Calendar, roles: ['admin', 'ik', 'staff'] },
+        { id: 'hr_attendance', label: 'Puantaj', icon: Calendar, roles: ['admin', 'ik', 'staff'] },
+        { id: 'hr_movements', label: 'Personel Hareketleri', icon: Layers, roles: ['admin', 'ik', 'staff'] },
+        { id: 'reports_employee', label: 'Faaliyet Raporları', icon: FileText, roles: ['admin', 'ik', 'staff'] }
       ]
     },
-    // 8. Ayarlar (Sadece Admin / Firma Sahibi)
+    // 10. Ayarlar (Sadece Admin / Firma Sahibi)
     {
       id: 'settings_group',
       title: 'Ayarlar',
@@ -199,16 +281,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Helper to find which group contains an active view ID
   const findGroupIdForView = (viewId: string): string | null => {
     if (viewId === 'ana_panel' || viewId === 'main_dashboard') return 'ana_panel_group';
-    // Mapping for Aliased Finance & Settings sub-items
-    if (viewId === 'fin_invoices' || viewId === 'fin_payments' || viewId === 'fin_accounts' || viewId === 'dashboard') {
-      return 'finance';
-    }
-    if (viewId === 'settings_users' || viewId === 'settings_permissions' || viewId === 'settings_system' || viewId === 'user_management') {
-      return 'settings_group';
-    }
-    if (viewId === 'hr_leave' || viewId === 'hr_attendance' || viewId === 'hr_interviews' || viewId === 'reports_employee') {
-      return 'human_resources';
-    }
+    if (['customers', 'quotes', 'orders', 'b2b', 'manual_orders_planning'].includes(viewId)) return 'crm_orders';
+    if (['suppliers', 'purchasing_requests', 'goods_receipt'].includes(viewId)) return 'procurement';
+    if (['products_raw_materials', 'products_sds_warning', 'inventory_stock', 'warehouse_layout', 'scanner'].includes(viewId)) return 'inventory';
+    if (['factory_dashboard', 'mrp', 'bom_management', 'pallet_box_center', 'packaging_station'].includes(viewId)) return 'manufacturing_planning';
+    if (['quality_pending', 'quality_templates', 'quality_coas', 'traceability'].includes(viewId)) return 'quality_management';
+    if (['logistics', 'tracking'].includes(viewId)) return 'logistics_group';
+    if (['fin_invoices', 'fin_payments', 'fin_accounts', 'dashboard', 'fin_reports', 'customers_finance'].includes(viewId)) return 'finance';
+    if (['hr_leave', 'hr_attendance', 'hr_interviews', 'hr_personnel', 'hr_movements', 'reports_employee'].includes(viewId)) return 'human_resources';
+    if (['settings_users', 'settings_permissions', 'settings_system', 'user_management'].includes(viewId)) return 'settings_group';
 
     for (const group of menuGroups) {
       if (group.items.some((it) => it.id === viewId)) {
@@ -235,26 +316,79 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // DYNAMIC ACL & ZERO-TRUST FILTERING:
-  // Shows only menu groups and sub-items for which the user holds 'read' permission.
+  // Role rules:
+  // - Admin: Sees all modules and items
+  // - Bayi (B2B): Only CRM ve Sipariş (B2B + Siparişler) + Lojistik (tracking)
+  // - Operator: Only Üretim (Barkod, Emirler, İş İstasyonu) + Envanter (Terminal)
+  // - Muhasebe: Finans + CRM (Sipariş/Müşteri) + Satın Alma + Lojistik
+  // - İK & Ayarlar: Admin only
   const filterGroupsByRole = (): MenuGroup[] => {
     if (isAdmin) {
       return menuGroups;
     }
 
     if (isBayi) {
-      // B2B: Sadece Satış & B2B (Bayi Siparişleri)
+      // B2B Müşteri: Ana Panel (sade), Siparişlerim, Yeni Sipariş, Cari Hesabım, Sevkiyat Takibi
+      return [
+        {
+          id: 'bayi_portal',
+          title: 'B2B Bayi Portalı',
+          icon: ShoppingCart,
+          roles: ['customer', 'bayi'],
+          items: [
+            { id: 'b2b', label: 'Ana Panel (Cari Özet)', icon: LayoutDashboard },
+            { id: 'orders', label: 'Siparişlerim', icon: ShoppingBag },
+            { id: 'tracking', label: 'Sevkiyat Takibi', icon: Truck }
+          ]
+        }
+      ];
+    }
+
+    if (isOperator) {
+      // Operatör: üretim barkod/terminal/üretim emri/iş istasyonu
       return menuGroups
-        .filter((g) => g.id === 'sales_b2b')
+        .filter((g) => g.id === 'manufacturing_planning' || g.id === 'inventory')
         .map((g) => ({
           ...g,
-          items: g.items.filter((it) => (it.id === 'b2b' || it.id === 'orders') && hasPermission(it.id, 'read'))
+          items: g.items.filter((it) =>
+            ['pallet_box_center', 'factory_dashboard', 'packaging_station', 'scanner'].includes(it.id)
+          )
         }))
         .filter((g) => g.items.length > 0);
     }
 
-    // Dynamic filtering for all users based on 'read' permission
+    if (isMuhasebe) {
+      // Muhasebe: finans + sipariş/mal kabul okuma + sevkiyat
+      return menuGroups
+        .filter((g) =>
+          ['ana_panel_group', 'crm_orders', 'procurement', 'finance', 'logistics_group'].includes(g.id)
+        )
+        .map((g) => {
+          if (g.isDirectLink) return g;
+          return {
+            ...g,
+            items: g.items.filter((it) => {
+              if (g.id === 'finance') return true;
+              if (it.id === 'orders' || it.id === 'customers') return true;
+              if (it.id === 'goods_receipt' || it.id === 'suppliers' || it.id === 'purchasing_requests') return true;
+              if (it.id === 'logistics') return true;
+              return false;
+            })
+          };
+        })
+        .filter((g) => g.isDirectLink || g.items.length > 0);
+    }
+
+    // Dynamic filtering for all other users based on 'read' permission
     return menuGroups
       .filter((g) => {
+        if (g.id === 'settings_group') {
+          return isAdmin;
+        }
+        if (g.id === 'human_resources') {
+          const isIK = user?.department_code === 'IK' || userRolesStr.includes('ik') || hasPermission('hr', 'read');
+          return isAdmin || isIK;
+        }
         if (g.isDirectLink) {
           return hasPermission(g.directViewId || 'ana_panel', 'read');
         }
@@ -262,7 +396,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       })
       .map((g) => {
         if (g.isDirectLink) return g;
-        const allowedItems = g.items.filter((it) => hasPermission(it.id, 'read'));
+        const allowedItems = g.items.filter((it) => {
+          const permKey = viewPermissionMap[it.id] || it.id;
+          return hasPermission(it.id, 'read') || hasPermission(permKey, 'read');
+        });
         return {
           ...g,
           items: allowedItems
@@ -284,7 +421,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       border: 'border-primary-border',
       accentBorder: 'border-l-primary'
     },
-    sales_b2b: {
+    crm_orders: {
       badgeBg: 'bg-mod-satis-soft',
       textColor: 'text-mod-satis',
       border: 'border-mod-satis-border',
@@ -296,17 +433,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
       border: 'border-purple-500/20',
       accentBorder: 'border-l-purple-600'
     },
-    inventory_warehouse: {
+    inventory: {
       badgeBg: 'bg-mod-stok-soft',
       textColor: 'text-mod-stok',
       border: 'border-mod-stok-border',
       accentBorder: 'border-l-emerald-600'
     },
-    manufacturing: {
+    manufacturing_planning: {
       badgeBg: 'bg-mod-uretim-soft',
       textColor: 'text-mod-uretim',
       border: 'border-mod-uretim-border',
       accentBorder: 'border-l-amber-600'
+    },
+    quality_management: {
+      badgeBg: 'bg-teal-500/10',
+      textColor: 'text-teal-600',
+      border: 'border-teal-500/20',
+      accentBorder: 'border-l-teal-600'
+    },
+    logistics_group: {
+      badgeBg: 'bg-sky-500/10',
+      textColor: 'text-sky-600',
+      border: 'border-sky-500/20',
+      accentBorder: 'border-l-sky-600'
     },
     finance: {
       badgeBg: 'bg-mod-finans-soft',
@@ -330,10 +479,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isSubItemActive = (subId: string): boolean => {
     if (currentView === subId) return true;
+    if (subId === 'orders' && currentView === 'orders') return true;
+    if (subId === 'b2b' && currentView === 'b2b') return true;
+    if (subId === 'quotes' && currentView === 'quotes') return true;
+    if (subId === 'factory_dashboard' && currentView === 'factory_dashboard') return true;
+    if (subId === 'mrp' && currentView === 'mrp') return true;
     if (subId === 'fin_invoices' && currentView === 'fin_invoices') return true;
     if (subId === 'fin_payments' && currentView === 'fin_payments') return true;
     if (subId === 'fin_accounts' && (currentView === 'fin_accounts' || currentView === 'customers_finance')) return true;
-    if (subId === 'dashboard' && currentView === 'dashboard') return true;
+    if (subId === 'dashboard' && (currentView === 'dashboard' || currentView === 'fin_reports')) return true;
     if (subId === 'settings_users' && (currentView === 'settings_users' || currentView === 'user_management')) return true;
     if (subId === 'settings_permissions' && currentView === 'settings_permissions') return true;
     if (subId === 'settings_system' && currentView === 'settings_system') return true;
@@ -396,7 +550,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* EXACT 8-HEADING ACCORDION NAVIGATION */}
+          {/* 10-HEADING ACCORDION NAVIGATION */}
           <nav className="flex-1 p-2 space-y-1 overflow-y-auto scrollbar-none">
             {visibleGroups.map((group) => {
               const GroupIcon = group.icon;
@@ -431,7 +585,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 );
               }
 
-              // 2 - 8. Process Accordion Groups
+              // 2 - 10. Process Accordion Groups
               return (
                 <div
                   key={group.id}

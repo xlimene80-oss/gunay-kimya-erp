@@ -116,7 +116,8 @@ export const HRInterviews: React.FC = () => {
     if (actionType === 'APPROVE') {
       payload = {
         status: 'onaylandi',
-        sub_status: selectedDept,
+        department: selectedDept,
+        sub_status: `${selectedDept} - İşe Alım Onayı`,
         reason: `${selectedDept} departmanı için işe alım onaylandı.`
       };
     } else if (actionType === 'REJECT') {

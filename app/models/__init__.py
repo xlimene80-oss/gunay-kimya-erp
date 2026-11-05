@@ -87,7 +87,8 @@ from app.models.purchasing import (
 
 # 10. Human Resources & Talent Acquisition
 from app.models.hr import (
-    HRInterview, InterviewStatus
+    HRInterview, InterviewStatus,
+    HRPersonnel, HRLeave, HRAttendance, HRMovement
 )
 
 # 11. Staff & Sales Reporting
