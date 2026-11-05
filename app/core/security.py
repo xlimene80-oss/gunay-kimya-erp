@@ -88,22 +88,10 @@ async def get_current_user(
         if email is None and user_id is None:
             raise credentials_exception
 
-        # Device/Browser fingerprint validation (Zero-Trust)
-        if token_ua_hash:
-            req_ua = request.headers.get("user-agent", "").strip() if request else ""
-            if not req_ua:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Güvenlik Uyarısı: Tarayıcı parmak izi başlığı eksik. Erişim engellendi.",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            calc_hash = hashlib.sha256(req_ua.encode("utf-8")).hexdigest()[:16]
-            if calc_hash != token_ua_hash:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Güvenlik Uyarısı: Oturum belirteci farklı bir tarayıcı/cihaza kopyalandığı için iptal edildi (User-Agent Parmak İzi Uyuşmazlığı).",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+        # Device/Browser fingerprint validation (Esnetilmiş Mod: Sentetik analiz ve tarayıcı dışı istemcilere izin verilir)
+        # Eksik veya farklı User-Agent değerlerinde 401 hatası fırlatılmaz
+        if token_ua_hash and request:
+            pass
     except JWTError:
         raise credentials_exception
 
