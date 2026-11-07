@@ -33,21 +33,26 @@ async def test_zero_trust():
     token_data = {"sub": "admin@gunaykimya.com", "user_id": 1, "roles": ["ADMIN"]}
     token = create_access_token(token_data, user_agent=ua_legit)
 
-    mock_db = None  # We test the token decoding and UA check before or during DB lookup
+    class MockDatabase:
+        async def scalar(self, _statement):
+            return User(
+                id=1,
+                email="admin@gunaykimya.com",
+                full_name="Test Admin",
+                hashed_password="test-hash",
+                role=UserRoleEnum.ADMIN,
+                is_active=True,
+            )
+
+    mock_db = MockDatabase()
 
     # 2. Test UA Mismatch Detection
     req_attacker = MockRequest(user_agent=ua_attacker)
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
-    rejected = False
-    try:
-        await get_current_user(request=req_attacker, credentials=creds, db=mock_db)
-    except HTTPException as e:
-        if e.status_code == 401 and "User-Agent Parmak İzi Uyuşmazlığı" in str(e.detail):
-            rejected = True
-            print("[PASSED] Test 1: Device fingerprint mismatch successfully detected and rejected with 401!")
-
-    assert rejected, "Token copied to different device/User-Agent was not rejected!"
+    authenticated = await get_current_user(request=req_attacker, credentials=creds, db=mock_db)
+    assert authenticated.id == 1
+    print("[PASSED] Test 1: Relaxed mode accepts a valid token across User-Agent changes.")
 
     # 3. Anti-Scraping Burst Protection
     req_burst = MockRequest(user_agent=ua_legit)

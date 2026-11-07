@@ -3,7 +3,6 @@ import axios from 'axios';
 import {
   ShoppingBag,
   CreditCard,
-  Calendar,
   Clock,
   Plus,
   RefreshCw,
@@ -16,7 +15,8 @@ import {
   TrendingUp,
   ShieldCheck,
   Send,
-  Lock
+  Lock,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -33,6 +33,32 @@ interface CariStatement {
   phone?: string;
   email?: string;
   address?: string;
+}
+
+interface ProductOption {
+  id: number;
+  sku: string;
+  name: string;
+  unit: string;
+  category: string;
+  list_price: number;
+  unit_price: number;
+  b2b_price?: number | null;
+  stock: number;
+  rezerv_miktar: number;
+  available_stock: number;
+  in_stock: boolean;
+}
+
+interface OrderRowItem {
+  id: string;
+  item_id: number | '';
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  stock_status: 'ok' | 'insufficient' | null;
+  stock_message: string;
+  available_stock?: number;
 }
 
 interface OrderItem {
@@ -57,11 +83,11 @@ interface OrderItem {
 export const B2BDashboard: React.FC = () => {
   const { hasPermission } = useAuth();
   const canCreateOrder = hasPermission('b2b_orders');
-  const canTrack = hasPermission('b2b_tracking');
   const canViewStatement = hasPermission('b2b_statement');
 
   const [statement, setStatement] = useState<CariStatement | null>(null);
   const [orders, setOrders] = useState<OrderItem[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -70,22 +96,36 @@ export const B2BDashboard: React.FC = () => {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [orderForm, setOrderForm] = useState({
-    items_summary: '',
-    total_amount: '',
     notes: ''
   });
+
+  // Dynamic Order Line Items
+  const [orderRows, setOrderRows] = useState<OrderRowItem[]>([
+    {
+      id: 'b2b-row-1',
+      item_id: '',
+      quantity: 1,
+      unit_price: 0,
+      total_price: 0,
+      stock_status: null,
+      stock_message: ''
+    }
+  ]);
+
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<boolean>(false);
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const [statementRes, ordersRes] = await Promise.all([
+      const [statementRes, ordersRes, prodsRes] = await Promise.all([
         axios.get('/api/v1/orders/b2b/my-cari-statement'),
-        axios.get('/api/v1/orders')
+        axios.get('/api/v1/orders'),
+        axios.get('/api/products').catch(() => axios.get('/api/v1/products'))
       ]);
       setStatement(statementRes.data);
       setOrders(ordersRes.data || []);
+      setProducts(prodsRes.data || []);
     } catch (err: any) {
       console.error('B2B verileri yüklenemedi:', err);
     } finally {
@@ -97,20 +137,162 @@ export const B2BDashboard: React.FC = () => {
     fetchDashboardData();
   }, []);
 
+  // Calculate dynamic grand total
+  const totalOrderAmount = orderRows.reduce((acc, row) => acc + (row.total_price || 0), 0);
+
+  // Check stock on backend
+  const checkStockBackend = async (itemId: number, qty: number): Promise<{ status: 'ok' | 'insufficient'; message: string; available: number }> => {
+    try {
+      const res = await axios.post('/api/orders/check-stock', {
+        item_id: itemId,
+        quantity: qty
+      });
+      if (res.data?.status === 'insufficient') {
+        return {
+          status: 'insufficient',
+          message: res.data.message || 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.',
+          available: Number(res.data.available ?? 0)
+        };
+      }
+      return {
+        status: 'ok',
+        message: '',
+        available: Number(res.data.available ?? 0)
+      };
+    } catch (e) {
+      const p = products.find((pr) => pr.id === itemId);
+      const avail = p ? p.available_stock : 0;
+      if (qty > avail) {
+        return {
+          status: 'insufficient',
+          message: 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.',
+          available: avail
+        };
+      }
+      return { status: 'ok', message: '', available: avail };
+    }
+  };
+
+  const handleProductChange = async (index: number, selectedItemId: number) => {
+    const selectedProd = products.find((p) => p.id === selectedItemId);
+    const price = selectedProd ? selectedProd.unit_price || selectedProd.list_price || 0 : 0;
+    const qty = orderRows[index].quantity || 1;
+    const total = qty * price;
+
+    let stockInfo: { status: 'ok' | 'insufficient'; message: string; available: number } = {
+      status: 'ok',
+      message: '',
+      available: selectedProd ? selectedProd.available_stock : 0
+    };
+
+    if (selectedItemId) {
+      stockInfo = await checkStockBackend(selectedItemId, qty);
+    }
+
+    setOrderRows((prev) => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        item_id: selectedItemId || '',
+        unit_price: price,
+        total_price: total,
+        stock_status: stockInfo.status,
+        stock_message: stockInfo.message,
+        available_stock: stockInfo.available
+      };
+      return updated;
+    });
+  };
+
+  const handleQuantityChange = async (index: number, newQty: number) => {
+    const safeQty = Math.max(0, newQty);
+    const row = orderRows[index];
+    const total = safeQty * (row.unit_price || 0);
+
+    let stockInfo: { status: 'ok' | 'insufficient'; message: string; available: number } = {
+      status: row.stock_status || 'ok',
+      message: row.stock_message,
+      available: row.available_stock ?? 0
+    };
+
+    if (row.item_id) {
+      stockInfo = await checkStockBackend(Number(row.item_id), safeQty);
+    }
+
+    setOrderRows((prev) => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        quantity: safeQty,
+        total_price: total,
+        stock_status: stockInfo.status,
+        stock_message: stockInfo.message,
+        available_stock: stockInfo.available
+      };
+      return updated;
+    });
+  };
+
+  const handleAddRow = () => {
+    setOrderRows((prev) => [
+      ...prev,
+      {
+        id: `b2b-row-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        item_id: '',
+        quantity: 1,
+        unit_price: 0,
+        total_price: 0,
+        stock_status: null,
+        stock_message: ''
+      }
+    ]);
+  };
+
+  const handleRemoveRow = (index: number) => {
+    if (orderRows.length === 1) return;
+    setOrderRows((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleCreateB2BOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const validItems = orderRows
+      .filter((r) => r.item_id && r.quantity > 0)
+      .map((r) => ({
+        item_id: Number(r.item_id),
+        quantity: r.quantity,
+        unit_price: r.unit_price
+      }));
+
+    if (validItems.length === 0) {
+      setFormError('Lütfen en az bir geçerli ürün kalemi ve miktarı ekleyiniz.');
+      return;
+    }
+
     setSubmitting(true);
     setFormError(null);
 
     try {
       await axios.post('/api/v1/orders/b2b-create', {
-        items_summary: orderForm.items_summary.trim(),
-        total_amount: parseFloat(orderForm.total_amount) || 0,
+        items: validItems,
+        total_amount: totalOrderAmount,
         notes: orderForm.notes.trim() || undefined
       });
 
       setFormSuccess(true);
-      setOrderForm({ items_summary: '', total_amount: '', notes: '' });
+      setOrderForm({ notes: '' });
+      setOrderRows([
+        {
+          id: `b2b-row-${Date.now()}`,
+          item_id: '',
+          quantity: 1,
+          unit_price: 0,
+          total_price: 0,
+          stock_status: null,
+          stock_message: ''
+        }
+      ]);
+
       setTimeout(() => {
         setFormSuccess(false);
         setIsOrderModalOpen(false);
@@ -218,192 +400,165 @@ export const B2BDashboard: React.FC = () => {
       {/* Financial Health & Risk Overview Cards */}
       {canViewStatement ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-5 rounded-2xl bg-surface border border-border shadow-card hover:border-primary/40 transition">
-            <div className="flex items-center justify-between text-text-muted mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Güncel Cari Bakiye</span>
-              <CreditCard className="w-4 h-4 text-primary" />
-            </div>
-            <div className="text-2xl font-black font-mono text-text">
-              ₺{Number(statement?.current_balance || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-            </div>
-            <div className="mt-2 text-[11px] text-text-muted flex items-center gap-1">
-              <span className={`w-2 h-2 rounded-full ${statement && statement.current_balance > 0 ? 'bg-danger' : 'bg-success'}`} />
-              <span>{statement && statement.current_balance > 0 ? 'Ödenmesi gereken borç bakiyesi' : 'Hesabınız dengeli/alacaklı'}</span>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-surface border border-border shadow-card hover:border-primary/40 transition">
-            <div className="flex items-center justify-between text-text-muted mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Açık Sipariş Tutarı</span>
-              <ShoppingBag className="w-4 h-4 text-warning" />
-            </div>
-            <div className="text-2xl font-black font-mono text-text">
-              ₺{Number(statement?.open_orders_balance || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-            </div>
-            <div className="mt-2 text-[11px] text-text-muted">
-              Fabrikada onay ve üretim sürecindeki işler
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-surface border border-border shadow-card hover:border-primary/40 transition">
-            <div className="flex items-center justify-between text-text-muted mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Kredi Risk Limiti</span>
-              <TrendingUp className="w-4 h-4 text-success" />
-            </div>
-            <div className="text-2xl font-black font-mono text-text">
-              ₺{Number(statement?.credit_limit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-            </div>
-            <div className="mt-2 text-[11px]">
-              <span className="px-2 py-0.5 rounded font-bold uppercase text-[10px] bg-success-soft text-success border border-success-border">
-                {statement?.risk_status || 'HEALTHY'}
+          <div className="p-5 rounded-2xl bg-surface border border-border shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-xs text-text-muted font-semibold block mb-1">Cari Bakiye Durumu</span>
+              <span className={`text-xl font-bold font-mono ${(statement?.current_balance || 0) > 0 ? 'text-danger' : 'text-success'}`}>
+                ₺{Number(statement?.current_balance || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+              </span>
+              <span className="text-[10px] text-text-muted block mt-0.5">
+                {(statement?.current_balance || 0) > 0 ? 'Ödenmesi Gereken Borç' : 'Alacaklı / Açık Hesap'}
               </span>
             </div>
+            <div className="w-12 h-12 rounded-xl bg-primary-soft flex items-center justify-center text-primary">
+              <CreditCard className="w-6 h-6" />
+            </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-surface border border-border shadow-card hover:border-primary/40 transition">
-            <div className="flex items-center justify-between text-text-muted mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Ödeme Vadesi & Koşul</span>
-              <Calendar className="w-4 h-4 text-primary" />
+          <div className="p-5 rounded-2xl bg-surface border border-border shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-xs text-text-muted font-semibold block mb-1">Açık Siparişler Tutarı</span>
+              <span className="text-xl font-bold font-mono text-warning">
+                ₺{Number(statement?.open_orders_balance || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+              </span>
+              <span className="text-[10px] text-text-muted block mt-0.5">Fabrika onay / üretim aşamasında</span>
             </div>
-            <div className="text-2xl font-black font-mono text-text">
-              {statement?.payment_term_days || 30} Gün
+            <div className="w-12 h-12 rounded-xl bg-warning-soft flex items-center justify-center text-warning">
+              <ShoppingBag className="w-6 h-6" />
             </div>
-            <div className="mt-2 text-[11px] text-text-muted">
-              Cari Kod: <span className="font-mono font-bold text-text">{statement?.code || '-'}</span>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-surface border border-border shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-xs text-text-muted font-semibold block mb-1">Tahsis Edilen Kredi Limiti</span>
+              <span className="text-xl font-bold font-mono text-text">
+                ₺{Number(statement?.credit_limit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+              </span>
+              <span className="text-[10px] text-text-muted block mt-0.5">
+                Vade: {statement?.payment_term_days || 30} Gün
+              </span>
+            </div>
+            <div className="w-12 h-12 rounded-xl bg-surface border border-border flex items-center justify-center text-text-muted">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-surface border border-border shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-xs text-text-muted font-semibold block mb-1">Ticari Risk Statüsü</span>
+              <span className="text-base font-bold text-success flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" />
+                {statement?.risk_status || 'HEALTHY'}
+              </span>
+              <span className="text-[10px] text-text-muted block mt-0.5">Sipariş kabulüne uygun</span>
+            </div>
+            <div className="w-12 h-12 rounded-xl bg-success-soft flex items-center justify-center text-success">
+              <ShieldCheck className="w-6 h-6" />
             </div>
           </div>
         </div>
       ) : (
-        <div className="p-4 rounded-xl bg-surface border border-border/60 text-xs text-text-muted flex items-center gap-2">
-          <Lock className="w-4 h-4 text-text-muted" />
-          <span>Cari Ekstre & Bakiye görüntüleme yetkiniz yönetici tarafından sınırlandırılmıştır.</span>
+        <div className="p-4 rounded-xl bg-surface border border-border text-xs text-text-muted flex items-center gap-2">
+          <Lock className="w-4 h-4 text-warning" />
+          <span>Finansal ekstre ve bakiye özetini görüntüleme yetkiniz kısıtlanmıştır.</span>
         </div>
       )}
 
-      {/* Orders & Planning Section */}
-      <div className="bg-surface border border-border rounded-2xl shadow-card overflow-hidden">
-        <div className="p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-base font-bold text-text flex items-center gap-2">
-              <Package className="w-5 h-5 text-primary" />
-              Siparişlerim & Üretim/Sevkiyat Durumu
-            </h2>
-            <p className="text-xs text-text-muted mt-0.5">
-              Tesislerimize ilettiğiniz tüm siparişlerin güncel işleme ve depo planlama adımları
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Sipariş / Plan Kodu Ara..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-3 py-1.5 rounded-xl bg-bg border border-border text-xs text-text focus:outline-none focus:border-primary transition w-48 sm:w-64"
-              />
-            </div>
-
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="p-1.5 rounded-xl bg-bg border border-border text-xs text-text focus:outline-none focus:border-primary transition"
-            >
-              <option value="ALL">Tüm Durumlar</option>
-              <option value="Beklemede">Beklemede</option>
-              <option value="Onaylandı">Onaylandı</option>
-              <option value="Üretimde">Üretimde</option>
-              <option value="Sevkiyatta">Sevkiyatta</option>
-            </select>
-
+      {/* Orders Filter & Search Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 rounded-2xl bg-surface border border-border shadow-sm">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+          {['ALL', 'Beklemede', 'Onaylandı', 'Üretimde', 'Sevkiyatta'].map((st) => (
             <button
-              onClick={fetchDashboardData}
-              className="p-2 rounded-xl bg-bg border border-border text-text hover:bg-border/40 transition"
-              title="Yenile"
+              key={st}
+              onClick={() => setStatusFilter(st)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+                statusFilter === st
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'bg-bg text-text-muted hover:text-text border border-border'
+              }`}
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              {st === 'ALL' ? 'Tüm Siparişler' : st}
             </button>
-          </div>
+          ))}
         </div>
 
-        {/* Dynamic Orders Table */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Sipariş no, ürün veya not ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 rounded-xl bg-bg border border-border text-xs text-text placeholder:text-text-muted focus:outline-none focus:border-primary transition"
+            />
+          </div>
+
+          <button
+            onClick={fetchDashboardData}
+            className="p-2 rounded-xl bg-bg border border-border text-text hover:bg-border/50 transition"
+            title="Yenile"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Order List Table */}
+      <div className="rounded-2xl border border-border bg-surface shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-border flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Package className="w-5 h-5 text-primary" />
+            <h3 className="font-bold text-sm text-text">Sipariş & Sevkiyat Geçmişi</h3>
+          </div>
+          <span className="text-xs text-text-muted font-mono">{filteredOrders.length} Kayıt</span>
+        </div>
+
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
+          <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-bg border-b border-border text-xs font-semibold text-text-muted uppercase tracking-wider">
-                <th className="py-3 px-4">Sipariş No & Tarih</th>
+              <tr className="border-b border-border bg-bg/50 text-[11px] font-bold text-text-muted">
+                <th className="py-3 px-4">Sipariş No</th>
+                <th className="py-3 px-4">Tarih</th>
+                <th className="py-3 px-4">Durum</th>
                 <th className="py-3 px-4">Sipariş Kalemleri / Detay</th>
-                <th className="py-3 px-4 text-right">Tutar (₺)</th>
-                <th className="py-3 px-4 text-center">Sipariş Statüsü</th>
                 <th className="py-3 px-4">İş Planlama Kodu</th>
-                <th className="py-3 px-4">Hedef Depo</th>
-                <th className="py-3 px-4 text-center">Plan Durumu</th>
+                <th className="py-3 px-4 text-right">Toplam Tutar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {loading ? (
+              {filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-text-muted text-xs">
-                    <RefreshCw className="w-5 h-5 animate-spin mx-auto text-primary mb-2" />
-                    Siparişleriniz yükleniyor...
-                  </td>
-                </tr>
-              ) : filteredOrders.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-text-muted text-xs">
-                    Kayıtlı sipariş bulunamadı. "Yeni Sipariş Ver" butonuyla ilk siparişinizi iletebilirsiniz.
+                  <td colSpan={6} className="py-12 text-center text-text-muted">
+                    Kriterlere uygun sipariş bulunamadı.
                   </td>
                 </tr>
               ) : (
                 filteredOrders.map((ord) => (
-                  <tr key={ord.id} className="hover:bg-primary-soft/20 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-bold text-text">
-                      <div>#ORD-{ord.id}</div>
-                      <div className="text-[11px] text-text-muted font-normal mt-0.5">
-                        {new Date(ord.order_date).toLocaleDateString('tr-TR')}
-                      </div>
+                  <tr key={ord.id} className="hover:bg-bg/40 transition">
+                    <td className="py-3.5 px-4 font-mono font-bold text-primary">
+                      SIP-{ord.id}
                     </td>
-
-                    <td className="py-3.5 px-4 max-w-xs">
-                      <div className="text-xs text-text font-medium whitespace-pre-wrap">
-                        {ord.items_summary || 'Genel Sipariş Kalemi'}
-                      </div>
-                      {ord.notes && (
-                        <div className="text-[11px] text-text-muted mt-1 italic">
-                          Not: {ord.notes}
-                        </div>
-                      )}
+                    <td className="py-3.5 px-4 text-text-muted">
+                      {ord.created_at ? new Date(ord.created_at).toLocaleDateString('tr-TR') : '-'}
                     </td>
-
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-text">
-                      ₺{Number(ord.total_amount || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-center">
+                    <td className="py-3.5 px-4">
                       {getStatusBadge(ord.status)}
                     </td>
-
-                    <td className="py-3.5 px-4 font-mono text-xs text-primary font-bold">
-                      {canTrack ? ord.planning?.work_order_no || '-' : '•••'}
+                    <td className="py-3.5 px-4 max-w-xs truncate text-text font-medium" title={ord.items_summary || ''}>
+                      {ord.items_summary || '-'}
                     </td>
-
-                    <td className="py-3.5 px-4 text-xs text-text">
-                      {canTrack ? ord.planning?.target_warehouse || 'Ana Depo' : '•••'}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-center">
-                      {canTrack ? (
-                        ord.planning ? (
-                          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-bg border border-border text-text font-mono">
-                            {ord.planning.status}
-                          </span>
-                        ) : (
-                          <span className="text-text-muted text-xs">-</span>
-                        )
+                    <td className="py-3.5 px-4">
+                      {ord.planning?.work_order_no ? (
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded-lg bg-bg border border-border text-primary font-bold">
+                          {ord.planning.work_order_no}
+                        </span>
                       ) : (
-                        <span className="text-text-muted text-xs italic">Takip Kapalı</span>
+                        <span className="text-text-muted italic">Planlanıyor</span>
                       )}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-mono font-bold text-text">
+                      ₺{Number(ord.total_amount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
                     </td>
                   </tr>
                 ))
@@ -413,11 +568,11 @@ export const B2BDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* New B2B Order Modal */}
+      {/* New B2B Order Modal with Dynamic Line Items Table */}
       {isOrderModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-surface border border-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-border bg-gradient-to-r from-surface via-primary-soft/10 to-surface flex items-center justify-between">
+          <div className="bg-surface border border-border rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="p-5 border-b border-border bg-gradient-to-r from-surface via-primary-soft/10 to-surface flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                   <ShoppingBag className="w-5 h-5" />
@@ -435,7 +590,7 @@ export const B2BDashboard: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleCreateB2BOrder} className="p-5 space-y-4">
+            <form onSubmit={handleCreateB2BOrder} className="p-5 space-y-4 overflow-y-auto flex-1">
               {formError && (
                 <div className="p-3 rounded-xl bg-danger-soft border border-danger-border text-danger text-xs font-semibold flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -450,35 +605,125 @@ export const B2BDashboard: React.FC = () => {
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-text mb-1">
-                  Sipariş Verilecek Ürünler ve Miktarları *
-                </label>
-                <textarea
-                  required
-                  rows={4}
-                  value={orderForm.items_summary}
-                  onChange={(e) => setOrderForm({ ...orderForm, items_summary: e.target.value })}
-                  placeholder="Örn:&#10;- 2000 kg Sıvı Sabun Bazı (SLES-70)&#10;- 500 kg LABSA %96&#10;- 100 Adet 5L Endüstriyel Sıvı Deterjan"
-                  className="w-full p-3 rounded-xl bg-bg border border-border text-xs text-text placeholder:text-text-muted focus:outline-none focus:border-primary transition resize-none"
-                />
+              {/* Dynamic Order Line Items Table */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-text">
+                    Sipariş Edilecek Ürünler ve Miktarları *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddRow}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Yeni Kalem Ekle
+                  </button>
+                </div>
+
+                <div className="border border-border rounded-xl overflow-hidden bg-bg/40">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-bg border-b border-border text-[11px] font-bold text-text-muted">
+                        <th className="py-2.5 px-3">Ürün Seçimi</th>
+                        <th className="py-2.5 px-3 w-32">Miktar</th>
+                        <th className="py-2.5 px-3 w-28 text-right">Bayi Fiyatı</th>
+                        <th className="py-2.5 px-3 w-32 text-right">Satır Toplamı</th>
+                        <th className="py-2.5 px-2 w-10 text-center">İşlem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {orderRows.map((row, index) => {
+                        const currentProd = products.find((p) => p.id === row.item_id);
+                        return (
+                          <React.Fragment key={row.id}>
+                            <tr className="hover:bg-surface/50 transition">
+                              <td className="p-2.5">
+                                <select
+                                  required
+                                  value={row.item_id}
+                                  onChange={(e) => handleProductChange(index, Number(e.target.value))}
+                                  className="w-full p-2 rounded-lg bg-bg border border-border text-xs text-text font-semibold focus:outline-none focus:border-primary"
+                                >
+                                  <option value="">-- Ürün Seçiniz --</option>
+                                  {products.map((prod) => (
+                                    <option key={prod.id} value={prod.id}>
+                                      {prod.sku} - {prod.name} ({prod.unit}) - {prod.unit_price} TL [Stok: {prod.available_stock}]
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="p-2.5">
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="any"
+                                    required
+                                    value={row.quantity || ''}
+                                    onChange={(e) => handleQuantityChange(index, parseFloat(e.target.value) || 0)}
+                                    placeholder="1"
+                                    className="w-full p-2 rounded-lg bg-bg border border-border text-xs text-text font-bold text-right focus:outline-none focus:border-primary font-mono"
+                                  />
+                                  <span className="text-[10px] text-text-muted shrink-0 w-8 truncate">
+                                    {currentProd?.unit || 'Adet'}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold text-text">
+                                {row.unit_price ? row.unit_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'} TL
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold text-primary">
+                                {row.total_price ? row.total_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'} TL
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <button
+                                  type="button"
+                                  disabled={orderRows.length === 1}
+                                  onClick={() => handleRemoveRow(index)}
+                                  className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition disabled:opacity-30 disabled:pointer-events-none"
+                                  title="Kalemi Sil"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                            {row.stock_status === 'insufficient' && (
+                              <tr className="bg-amber-500/5">
+                                <td colSpan={5} className="px-3 py-2 border-b border-amber-500/20">
+                                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                                    <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+                                    <span>{row.stock_message || 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.'}</span>
+                                    {row.available_stock !== undefined && (
+                                      <span className="font-mono opacity-80">(Mevcut Serbest Stok: {row.available_stock})</span>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
+              {/* Dynamic Read-only Total Amount */}
               <div>
                 <label className="block text-xs font-bold text-text mb-1">
-                  Tahmini / Anlaşmalı Sipariş Tutarı (₺)
+                  Toplam Sipariş Tutarı
                 </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={orderForm.total_amount}
-                  onChange={(e) => setOrderForm({ ...orderForm, total_amount: e.target.value })}
-                  placeholder="0.00"
-                  className="w-full p-2.5 rounded-xl bg-bg border border-border text-xs text-text font-mono focus:outline-none focus:border-primary transition"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    readOnly
+                    value={totalOrderAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' TL'}
+                    className="w-full p-2.5 rounded-xl bg-bg/80 border border-border text-sm text-primary font-mono font-bold cursor-not-allowed select-none shadow-inner"
+                  />
+                </div>
                 <span className="text-[10px] text-text-muted mt-1 block">
-                  Birim fiyat anlaşması mevcut ise yaklaşık tutarı girebilirsiniz (isteğe bağlı).
+                  Bayinize tanımlı özel birim fiyatlar ve girilen miktarlara göre otomatik hesaplanır (Salt okunur).
                 </span>
               </div>
 

@@ -64,6 +64,8 @@ async def run_all_migrations():
             ("sds_revision_date", "DATE", "DATE"),
             ("hazard_notes", "TEXT", "TEXT"),
             ("default_unit_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+            ("list_price", "NUMERIC(14, 2) DEFAULT 0.00", "NUMERIC(14, 2) DEFAULT 0.00"),
+            ("rezerv_miktar", "NUMERIC(14, 3) DEFAULT 0.000", "NUMERIC(14, 3) DEFAULT 0.000"),
         ]
 
         lot_cols = [

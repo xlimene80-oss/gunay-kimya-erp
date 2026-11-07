@@ -53,6 +53,7 @@ export interface MenuGroup {
 interface SidebarProps {
   currentView: string;
   onNavigate: (view: string) => void;
+  productionAlertCount?: number;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
 }
@@ -113,6 +114,7 @@ const viewPermissionMap: Record<string, string> = {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onNavigate,
+  productionAlertCount = 0,
   isOpenMobile = false,
   onCloseMobile
 }) => {
@@ -611,6 +613,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <GroupIcon className="w-3.5 h-3.5" />
                       </div>
                       <span className="truncate tracking-wide">{group.title}</span>
+                      {group.id === 'manufacturing_planning' && productionAlertCount > 0 && (
+                        <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm">
+                          {productionAlertCount > 99 ? '99+' : productionAlertCount}
+                        </span>
+                      )}
                     </div>
 
                     <ChevronDown

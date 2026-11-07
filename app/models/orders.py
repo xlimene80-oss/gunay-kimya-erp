@@ -1,6 +1,6 @@
 import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy import (
     Integer, String, Text, Boolean, Numeric, ForeignKey, 
     DateTime, func
@@ -45,6 +45,87 @@ class Order(Base, TimestampMixin):
         cascade="all, delete-orphan", 
         lazy="selectin"
     )
+    items: Mapped[List["OrderItem"]] = relationship(
+        "OrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
+    @property
+    def order_items(self) -> List["OrderItem"]:
+        return self.items
+
+    @property
+    def siparis_kalemleri(self) -> List["OrderItem"]:
+        return self.items
+
+
+class OrderItem(Base, TimestampMixin):
+    """
+    SiparisKalemleri: Individual product, quantity, unit price line item inside an Order.
+    """
+    __tablename__ = "order_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("orders.id", ondelete="CASCADE"), 
+        index=True, 
+        nullable=False
+    )
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="RESTRICT"), 
+        index=True, 
+        nullable=False
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    total_price: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+
+    order: Mapped["Order"] = relationship("Order", back_populates="items")
+    item: Mapped["Item"] = relationship("Item", lazy="selectin")
+
+    @property
+    def item_name(self) -> Optional[str]:
+        return self.item.name if self.item else None
+
+    @property
+    def item_sku(self) -> Optional[str]:
+        return self.item.sku if self.item else None
+
+    @property
+    def item_unit(self) -> Optional[str]:
+        return self.item.unit if self.item else None
+
+
+SiparisKalemleri = OrderItem
+
+
+class B2BBayiFiyatlari(Base, TimestampMixin):
+    """
+    B2B Bayi özel ürün fiyat listesi (B2BBayiFiyatlari).
+    """
+    __tablename__ = "b2b_bayi_fiyatlari"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dealer_code: Mapped[str] = mapped_column(String(50), index=True, nullable=False) # e.g. "B2B-0001"
+    cari_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("cari_accounts.id", ondelete="CASCADE"), 
+        index=True, 
+        nullable=True
+    )
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="CASCADE"), 
+        index=True, 
+        nullable=False
+    )
+    special_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False) # Özel Bayi Fiyatı (TL)
+
+    item: Mapped["Item"] = relationship("Item", lazy="selectin")
+    cari: Mapped[Optional["CariAccount"]] = relationship("CariAccount", lazy="selectin")
+
+
+B2BDealerPrice = B2BBayiFiyatlari
 
 
 class Planning(Base, TimestampMixin):

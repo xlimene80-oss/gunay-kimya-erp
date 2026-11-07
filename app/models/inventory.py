@@ -75,6 +75,18 @@ class Item(Base, TimestampMixin):
         nullable=True
     )
 
+    # Pricing & Stock Reservation
+    list_price: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), 
+        default=Decimal("0.00"), 
+        nullable=False
+    )
+    rezerv_miktar: Mapped[Decimal] = mapped_column(
+        Numeric(14, 3), 
+        default=Decimal("0.000"), 
+        nullable=False
+    )
+
     # Relationships
     batches: Mapped[List["BatchLot"]] = relationship(
         "BatchLot", 

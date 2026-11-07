@@ -77,7 +77,7 @@ from app.models.crm import (
 
 # 8. Sales Orders & B2B Dispatch Planning
 from app.models.orders import (
-    Order, Planning
+    Order, Planning, OrderItem, SiparisKalemleri, B2BBayiFiyatlari, B2BDealerPrice
 )
 
 # 9. Procurement & Internal Purchase Requisitions
@@ -95,3 +95,6 @@ from app.models.hr import (
 from app.models.reports import (
     EmployeeReport
 )
+
+# 12. Order-triggered production work queue
+from app.models.production_alerts import UretimEmri

@@ -8,9 +8,37 @@ from app.core.config import get_db
 from app.core.security import get_current_user
 from app.models.auth import User
 from app.models.notifications import Notification
+from app.models.auth import UserRoleEnum
 from app.schemas.notifications import NotificationResponse
 
 router = APIRouter(prefix="/notifications", tags=["Notifications & Event System"])
+
+
+@router.get("/production", response_model=List[NotificationResponse])
+async def list_production_notifications(
+    unread_only: bool = Query(True),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Production team's polling queue for order-triggered shortage alerts."""
+    department_code = str(getattr(getattr(current_user, "department", None), "code", "")).upper()
+    role_names = " ".join(str(getattr(role, "role_name", "")) for role in (current_user.roles or [])).lower()
+    allowed = (
+        current_user.role == UserRoleEnum.ADMIN
+        or department_code in {"URETIM", "YONETIM"}
+        or "uretim" in role_names
+        or "fabrika_muduru" in role_names
+        or "yonetici" in role_names
+    )
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Üretim bildirimleri için yetkiniz bulunmuyor.")
+
+    query = select(Notification).where(Notification.event_type == "ORDER_STOCK_SHORTAGE")
+    if unread_only:
+        query = query.where(Notification.is_read.is_(False))
+    result = await db.scalars(query.order_by(Notification.created_at.desc()).limit(limit))
+    return list(result.all())
 
 @router.get("/", response_model=List[NotificationResponse])
 async def list_notifications(

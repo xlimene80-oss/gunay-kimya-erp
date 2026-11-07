@@ -79,6 +79,10 @@ def get_customer_permissions() -> Dict[str, Dict[str, bool]]:
     # B2B Bayi can read/create orders and view statement
     for m in ["b2b", "orders"]:
         perms[m] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
+    # Compatibility keys used by older frontend routes and permission checks.
+    perms["b2b_orders"] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
+    perms["b2b_tracking"] = {"read": True, "create": False, "update": False, "delete": False, "approve": False}
+    perms["b2b_statement"] = {"read": True, "create": False, "update": False, "delete": False, "approve": False}
     return perms
 
 def get_default_department_permissions(code: str) -> Dict[str, Dict[str, bool]]:

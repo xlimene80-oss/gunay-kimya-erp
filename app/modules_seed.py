@@ -5,7 +5,7 @@ from decimal import Decimal
 import logging
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
-from app.core.config import async_session_factory
+from app.core.config import async_session_factory, engine
 from app.models.auth import Role, ModulePermission, User
 from app.models.inventory import (
     Item, BatchLot, ItemCategory,
@@ -814,6 +814,68 @@ async def seed_new_modules_data():
                         f_lot.total_material_cost_usd = o.total_material_cost_usd
 
             print("[MODULES SEED] BOM and USD Production Costing demo records initialized successfully.")
+
+            # Seed chemical test products for orders & B2B
+            from app.models.orders import B2BBayiFiyatlari
+            sqlite_demo_seed = engine.url.get_backend_name().lower() == "sqlite"
+            test_prods = [
+                ("GK-M-01", "Limon Kolonyası 80° (5L Bidon)", "Bidon (5L)", Decimal("450.00"), Decimal("400.00")),
+                ("GK-M-02", "Limon Kolonyası 80° (1L Şişe)", "Şişe (1L)", Decimal("110.00"), Decimal("95.00")),
+                ("GK-M-03", "Dezenfektan Sprey (500ml)", "Şişe (500ml)", Decimal("65.00"), Decimal("65.00")),
+            ] if sqlite_demo_seed else []
+            for t_sku, t_name, t_unit, t_lp, t_bp in test_prods:
+                it = (await session.execute(select(Item).where(Item.sku == t_sku))).scalar_one_or_none()
+                if not it:
+                    it = Item(
+                        sku=t_sku, name=t_name, unit=t_unit, category=ItemCategory.FINISHED_GOOD,
+                        list_price=t_lp, rezerv_miktar=Decimal("0.000"), is_active=True
+                    )
+                    session.add(it)
+                    await session.flush()
+                else:
+                    it.list_price = t_lp
+
+                bl = (await session.execute(select(BatchLot).where(BatchLot.item_id == it.id, BatchLot.warehouse == "Mamul Ürün Deposu"))).scalar_one_or_none()
+                if not bl:
+                    bl = BatchLot(
+                        batch_number=f"LOT-{t_sku}-INIT", item_id=it.id, warehouse="Mamul Ürün Deposu",
+                        quantity=Decimal("100.000"), status="Serbest", expiration_date=datetime.date(2028, 12, 31)
+                    )
+                    session.add(bl)
+
+                b_row = (await session.execute(select(B2BBayiFiyatlari).where(B2BBayiFiyatlari.dealer_code == "B2B-0001", B2BBayiFiyatlari.item_id == it.id))).scalar_one_or_none()
+                if not b_row:
+                    session.add(B2BBayiFiyatlari(dealer_code="B2B-0001", cari_id=1, item_id=it.id, special_price=t_bp))
+                else:
+                    b_row.special_price = t_bp
+
+            # Chemical raw materials used by the demo inventory and AI stock summaries.
+            demo_raw_materials = [
+                ("GK-H-01", "Etil Alkol 96°", "kg"),
+                ("GK-H-02", "Limon Esansı", "kg"),
+                ("GK-H-03", "Denatonyum Benzoat", "kg"),
+            ] if sqlite_demo_seed else []
+            for raw_sku, raw_name, raw_unit in demo_raw_materials:
+                raw_item = (await session.execute(select(Item).where(Item.sku == raw_sku))).scalar_one_or_none()
+                if not raw_item:
+                    raw_item = Item(
+                        sku=raw_sku, name=raw_name, unit=raw_unit,
+                        category=ItemCategory.RAW_MATERIAL, list_price=Decimal("0.00"),
+                        min_stock=Decimal("10.000"), is_active=True,
+                    )
+                    session.add(raw_item)
+                    await session.flush()
+                raw_lot = (await session.execute(select(BatchLot).where(
+                    BatchLot.item_id == raw_item.id,
+                    BatchLot.warehouse == "Hammadde Deposu",
+                    BatchLot.batch_number == f"LOT-{raw_sku}-INIT",
+                ))).scalar_one_or_none()
+                if not raw_lot:
+                    session.add(BatchLot(
+                        batch_number=f"LOT-{raw_sku}-INIT", item_id=raw_item.id,
+                        warehouse="Hammadde Deposu", quantity=Decimal("100.000"),
+                        status="Serbest", expiration_date=datetime.date(2028, 12, 31),
+                    ))
 
             await session.commit()
             print("[MODULES SEED SUCCESS] All demo and master data verified/seeded successfully.")

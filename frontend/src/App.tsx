@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import {
   Activity,
   FileCheck2,
@@ -43,6 +44,7 @@ import { UserManagement } from './views/UserManagement';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
+import { AssistantChat } from './components/AssistantChat';
 
 const MainShell: React.FC = () => {
   const { isAuthenticated, isLoading, user, hasPermission } = useAuth();
@@ -50,6 +52,9 @@ const MainShell: React.FC = () => {
   const [currentView, setCurrentView] = useState<string>('ana_panel');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [productionAlertCount, setProductionAlertCount] = useState(0);
+  const [productionToast, setProductionToast] = useState<{ id: number; message: string } | null>(null);
+  const toastShownIds = useRef<Set<number>>(new Set());
 
   const userRoles = (user?.roles || []).map((r) => r.toLowerCase());
   const userRolesStr = userRoles.join(' ');
@@ -72,6 +77,42 @@ const MainShell: React.FC = () => {
     userRolesStr.includes('bayi') ||
     userRolesStr.includes('b2b') ||
     userRolesStr.includes('customer');
+
+  const canMonitorProduction = !isBayi && (
+    isAdmin || isOperator || userRolesStr.includes('fabrika_muduru') ||
+    userRolesStr.includes('uretim') || (user?.department_code || '').toUpperCase() === 'URETIM'
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated || !canMonitorProduction) {
+      setProductionAlertCount(0);
+      return;
+    }
+    let active = true;
+    const pollProductionAlerts = async () => {
+      try {
+        const response = await axios.get('/api/notifications/production', { params: { unread_only: true } });
+        if (!active) return;
+        const alerts: Array<{ id: number; message: string }> = response.data || [];
+        setProductionAlertCount(alerts.length);
+        if (['factory_dashboard', 'mrp'].includes(currentView)) {
+          const unseen = alerts.find((alert) => !toastShownIds.current.has(alert.id));
+          if (unseen) {
+            toastShownIds.current.add(unseen.id);
+            setProductionToast(unseen);
+          }
+        }
+      } catch {
+        // The backend also enforces production role access; non-production screens stay quiet.
+      }
+    };
+    void pollProductionAlerts();
+    const intervalId = window.setInterval(pollProductionAlerts, 12000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [isAuthenticated, canMonitorProduction, currentView, user?.id]);
 
   // Permission Map across all 10 ERP groups
   const viewPermissionMap: Record<string, string> = {
@@ -257,6 +298,7 @@ const MainShell: React.FC = () => {
           <Sidebar
             currentView={currentView}
             onNavigate={setCurrentView}
+            productionAlertCount={productionAlertCount}
             isOpenMobile={isMobileMenuOpen}
             onCloseMobile={() => setIsMobileMenuOpen(false)}
           />
@@ -465,6 +507,21 @@ const MainShell: React.FC = () => {
           <span className="text-[10px] leading-tight font-bold">Terminal</span>
         </button>
       </nav>
+      {productionToast && (
+        <button
+          onClick={async () => {
+            try { await axios.patch(`/api/notifications/${productionToast.id}/read`); } catch { /* next poll retries */ }
+            setProductionAlertCount((count) => Math.max(0, count - 1));
+            setProductionToast(null);
+            setCurrentView('factory_dashboard');
+          }}
+          className="fixed right-4 top-4 z-[80] max-w-sm rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-left text-sm font-semibold text-amber-950 shadow-xl"
+        >
+          {productionToast.message}
+          <span className="mt-1 block text-xs font-medium text-amber-800">Üretim emirlerini açmak için tıklayın</span>
+        </button>
+      )}
+      <AssistantChat />
     </div>
   );
 };
