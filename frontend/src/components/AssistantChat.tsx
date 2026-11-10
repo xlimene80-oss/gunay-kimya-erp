@@ -8,8 +8,6 @@ import {
   Bot,
   User as UserIcon,
   RotateCcw,
-  ShieldCheck,
-  ChevronRight,
   Loader2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
