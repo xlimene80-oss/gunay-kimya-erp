@@ -3,6 +3,7 @@ import axios from 'axios';
 import {
   Calendar,
   Plus,
+  Minus,
   RefreshCw,
   Search,
   X,
@@ -35,7 +36,7 @@ interface ProductOption {
 interface OrderRowItem {
   id: string;
   item_id: number | '';
-  quantity: number;
+  quantity: number | string;
   unit_price: number;
   total_price: number;
   stock_status: 'ok' | 'insufficient' | null;
@@ -163,19 +164,14 @@ export const ManualOrdersPlanning: React.FC = () => {
   const handleProductChange = async (index: number, selectedItemId: number) => {
     const selectedProd = products.find((p) => p.id === selectedItemId);
     const price = selectedProd ? selectedProd.unit_price || selectedProd.list_price || 0 : 0;
-    const qty = orderRows[index].quantity || 1;
-    const total = qty * price;
+    const currentQty = typeof orderRows[index].quantity === 'number'
+      ? orderRows[index].quantity
+      : (parseFloat(String(orderRows[index].quantity)) || 1);
+    const total = currentQty * price;
+    const avail = selectedProd ? selectedProd.available_stock : 0;
+    const isInsufficient = selectedProd && currentQty > avail;
 
-    let stockInfo: { status: 'ok' | 'insufficient'; message: string; available: number } = {
-      status: 'ok',
-      message: '',
-      available: selectedProd ? selectedProd.available_stock : 0
-    };
-
-    if (selectedItemId) {
-      stockInfo = await checkStockBackend(selectedItemId, qty);
-    }
-
+    // Anlık senkron durum güncellemesi (gecikmesiz)
     setOrderRows((prev) => {
       const updated = [...prev];
       updated[index] = {
@@ -183,38 +179,100 @@ export const ManualOrdersPlanning: React.FC = () => {
         item_id: selectedItemId || '',
         unit_price: price,
         total_price: total,
-        stock_status: stockInfo.status,
-        stock_message: stockInfo.message,
-        available_stock: stockInfo.available
+        stock_status: isInsufficient ? 'insufficient' : 'ok',
+        stock_message: isInsufficient ? 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.' : '',
+        available_stock: avail
+      };
+      return updated;
+    });
+
+    if (selectedItemId) {
+      try {
+        const stockInfo = await checkStockBackend(selectedItemId, currentQty);
+        setOrderRows((prev) => {
+          const updated = [...prev];
+          if (updated[index] && updated[index].item_id === selectedItemId) {
+            updated[index] = {
+              ...updated[index],
+              stock_status: stockInfo.status,
+              stock_message: stockInfo.message,
+              available_stock: stockInfo.available
+            };
+          }
+          return updated;
+        });
+      } catch {
+        // Senkron hesaplama geçerli kalır
+      }
+    }
+  };
+
+  const handleQuantityChange = (index: number, val: string) => {
+    const sanitized = val.replace(',', '.');
+    // Sadece rakam veya tek bir ondalık nokta girişine izin ver (veya boş bırakma)
+    if (sanitized !== '' && !/^\d*\.?\d*$/.test(sanitized)) {
+      return;
+    }
+
+    setOrderRows((prev) => {
+      const updated = [...prev];
+      const row = updated[index];
+      const numQty = parseFloat(sanitized) || 0;
+      const prod = products.find((p) => p.id === row.item_id);
+      const avail = row.available_stock ?? (prod ? prod.available_stock : 0);
+      const isInsufficient = prod && numQty > avail;
+
+      updated[index] = {
+        ...row,
+        quantity: sanitized,
+        total_price: numQty * (row.unit_price || 0),
+        stock_status: isInsufficient ? 'insufficient' : 'ok',
+        stock_message: isInsufficient ? 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.' : '',
+        available_stock: avail
       };
       return updated;
     });
   };
 
-  const handleQuantityChange = async (index: number, newQty: number) => {
-    const safeQty = Math.max(0, newQty);
-    const row = orderRows[index];
-    const total = safeQty * (row.unit_price || 0);
-
-    let stockInfo: { status: 'ok' | 'insufficient'; message: string; available: number } = {
-      status: row.stock_status || 'ok',
-      message: row.stock_message,
-      available: row.available_stock ?? 0
-    };
-
-    if (row.item_id) {
-      stockInfo = await checkStockBackend(Number(row.item_id), safeQty);
-    }
-
+  const handleQuantityBlur = (index: number) => {
     setOrderRows((prev) => {
       const updated = [...prev];
+      const row = updated[index];
+      let numQty = parseFloat(String(row.quantity));
+      if (isNaN(numQty) || numQty < 1) {
+        numQty = 1;
+      }
+      const prod = products.find((p) => p.id === row.item_id);
+      const avail = row.available_stock ?? (prod ? prod.available_stock : 0);
+      const isInsufficient = prod && numQty > avail;
+
       updated[index] = {
-        ...updated[index],
-        quantity: safeQty,
-        total_price: total,
-        stock_status: stockInfo.status,
-        stock_message: stockInfo.message,
-        available_stock: stockInfo.available
+        ...row,
+        quantity: numQty,
+        total_price: numQty * (row.unit_price || 0),
+        stock_status: isInsufficient ? 'insufficient' : 'ok',
+        stock_message: isInsufficient ? 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.' : ''
+      };
+      return updated;
+    });
+  };
+
+  const handleStepQuantity = (index: number, delta: number) => {
+    setOrderRows((prev) => {
+      const updated = [...prev];
+      const row = updated[index];
+      const current = typeof row.quantity === 'number' ? row.quantity : (parseFloat(String(row.quantity)) || 1);
+      const next = Math.max(1, Math.round((current + delta) * 100) / 100);
+      const prod = products.find((p) => p.id === row.item_id);
+      const avail = row.available_stock ?? (prod ? prod.available_stock : 0);
+      const isInsufficient = prod && next > avail;
+
+      updated[index] = {
+        ...row,
+        quantity: next,
+        total_price: next * (row.unit_price || 0),
+        stock_status: isInsufficient ? 'insufficient' : 'ok',
+        stock_message: isInsufficient ? 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.' : ''
       };
       return updated;
     });
@@ -248,10 +306,10 @@ export const ManualOrdersPlanning: React.FC = () => {
     }
 
     const validItems = orderRows
-      .filter((r) => r.item_id && r.quantity > 0)
+      .filter((r) => r.item_id && Number(r.quantity) > 0)
       .map((r) => ({
         item_id: Number(r.item_id),
-        quantity: r.quantity,
+        quantity: Number(r.quantity),
         unit_price: r.unit_price
       }));
 
@@ -619,18 +677,34 @@ export const ManualOrdersPlanning: React.FC = () => {
                                 </select>
                               </td>
                               <td className="p-2.5">
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStepQuantity(index, -1)}
+                                    className="w-7 h-7 rounded-lg bg-surface hover:bg-surface-hover border border-border text-text font-bold flex items-center justify-center transition active:scale-95 text-xs shrink-0 select-none shadow-xs"
+                                    title="1 Azalt"
+                                  >
+                                    <Minus className="w-3.5 h-3.5" />
+                                  </button>
                                   <input
-                                    type="number"
-                                    min="1"
-                                    step="any"
+                                    type="text"
+                                    inputMode="decimal"
                                     required
-                                    value={row.quantity || ''}
-                                    onChange={(e) => handleQuantityChange(index, parseFloat(e.target.value) || 0)}
+                                    value={row.quantity}
+                                    onChange={(e) => handleQuantityChange(index, e.target.value)}
+                                    onBlur={() => handleQuantityBlur(index)}
                                     placeholder="1"
-                                    className="w-full p-2 rounded-lg bg-bg border border-border text-xs text-text font-bold text-right focus:outline-none focus:border-primary font-mono"
+                                    className="w-16 p-1.5 rounded-lg bg-bg border border-border text-xs text-text font-bold text-center focus:outline-none focus:border-primary font-mono shadow-inner"
                                   />
-                                  <span className="text-[10px] text-text-muted shrink-0 w-8 truncate">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStepQuantity(index, 1)}
+                                    className="w-7 h-7 rounded-lg bg-surface hover:bg-surface-hover border border-border text-text font-bold flex items-center justify-center transition active:scale-95 text-xs shrink-0 select-none shadow-xs"
+                                    title="1 Artır"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                  <span className="text-[10px] text-text-muted shrink-0 w-8 truncate font-medium">
                                     {currentProd?.unit || 'Adet'}
                                   </span>
                                 </div>
@@ -720,21 +794,37 @@ export const ManualOrdersPlanning: React.FC = () => {
 
                         {/* Miktar ve Birim */}
                         <div>
-                          <label className="block text-[11px] font-bold text-text-muted mb-1">
+                          <label className="block text-[11px] font-bold text-text-muted mb-1.5">
                             Miktar ({currentProd?.unit || 'Adet'})
                           </label>
-                          <div className="flex items-center space-x-2 w-full">
+                          <div className="flex items-center gap-2 w-full">
+                            <button
+                              type="button"
+                              onClick={() => handleStepQuantity(index, -1)}
+                              className="w-11 h-11 rounded-xl bg-white dark:bg-bg border border-gray-200 dark:border-border text-text hover:bg-gray-100 dark:hover:bg-surface flex items-center justify-center font-bold text-lg shrink-0 shadow-sm transition active:scale-95 select-none"
+                              title="1 Azalt"
+                            >
+                              <Minus className="w-5 h-5 text-text" />
+                            </button>
                             <input
-                              type="number"
-                              min="1"
-                              step="any"
+                              type="text"
+                              inputMode="decimal"
                               required
-                              value={row.quantity || ''}
-                              onChange={(e) => handleQuantityChange(index, parseFloat(e.target.value) || 0)}
+                              value={row.quantity}
+                              onChange={(e) => handleQuantityChange(index, e.target.value)}
+                              onBlur={() => handleQuantityBlur(index)}
                               placeholder="1"
-                              className="flex-1 p-2.5 rounded-lg bg-white dark:bg-bg border border-gray-200 dark:border-border text-xs text-text font-bold text-right focus:outline-none focus:border-primary font-mono shadow-sm"
+                              className="flex-1 h-11 px-3 rounded-xl bg-white dark:bg-bg border border-gray-200 dark:border-border text-base text-text font-bold text-center focus:outline-none focus:border-primary font-mono shadow-sm"
                             />
-                            <span className="px-3 py-2.5 rounded-lg bg-gray-100 dark:bg-bg/80 border border-gray-200 dark:border-border text-xs font-semibold text-text-muted shrink-0 min-w-16 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleStepQuantity(index, 1)}
+                              className="w-11 h-11 rounded-xl bg-white dark:bg-bg border border-gray-200 dark:border-border text-text hover:bg-gray-100 dark:hover:bg-surface flex items-center justify-center font-bold text-lg shrink-0 shadow-sm transition active:scale-95 select-none"
+                              title="1 Artır"
+                            >
+                              <Plus className="w-5 h-5 text-text" />
+                            </button>
+                            <span className="h-11 px-3.5 rounded-xl bg-gray-100 dark:bg-bg/80 border border-gray-200 dark:border-border text-xs font-bold text-text-muted shrink-0 min-w-16 flex items-center justify-center select-none">
                               {currentProd?.unit || 'Adet'}
                             </span>
                           </div>
