@@ -621,7 +621,8 @@ export const B2BDashboard: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="border border-border rounded-xl overflow-hidden bg-bg/40">
+                {/* Masaüstü Tablo Görünümü (>= md) */}
+                <div className="hidden md:block border border-border rounded-xl overflow-hidden bg-bg/40">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="bg-bg border-b border-border text-[11px] font-bold text-text-muted">
@@ -706,6 +707,106 @@ export const B2BDashboard: React.FC = () => {
                       })}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobil Kart Görünümü (< md) */}
+                <div className="md:hidden space-y-3">
+                  {orderRows.map((row, index) => {
+                    const currentProd = products.find((p) => p.id === row.item_id);
+                    return (
+                      <div
+                        key={row.id}
+                        className="flex flex-col space-y-3 p-3.5 bg-gray-50 dark:bg-surface border border-gray-200 dark:border-border rounded-xl relative shadow-sm"
+                      >
+                        {/* Üst Başlık ve Silme Butonu */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-text-muted">
+                            Kalem #{index + 1}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={orderRows.length === 1}
+                            onClick={() => handleRemoveRow(index)}
+                            className="p-1.5 rounded-lg text-danger hover:bg-danger/10 transition disabled:opacity-30 disabled:pointer-events-none"
+                            title="Kalemi Sil"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Ürün Seçimi - Tam Genişlik */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-text-muted mb-1">
+                            Ürün Seçimi
+                          </label>
+                          <select
+                            required
+                            value={row.item_id}
+                            onChange={(e) => handleProductChange(index, Number(e.target.value))}
+                            className="w-full p-2.5 rounded-lg bg-white dark:bg-bg border border-gray-200 dark:border-border text-xs text-text font-semibold focus:outline-none focus:border-primary shadow-sm"
+                          >
+                            <option value="">-- Ürün Seçiniz --</option>
+                            {products.map((prod) => (
+                              <option key={prod.id} value={prod.id}>
+                                {prod.sku} - {prod.name} ({prod.unit}) - {prod.unit_price} TL [Stok: {prod.available_stock}]
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Miktar ve Birim */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-text-muted mb-1">
+                            Miktar ({currentProd?.unit || 'Adet'})
+                          </label>
+                          <div className="flex items-center space-x-2 w-full">
+                            <input
+                              type="number"
+                              min="1"
+                              step="any"
+                              required
+                              value={row.quantity || ''}
+                              onChange={(e) => handleQuantityChange(index, parseFloat(e.target.value) || 0)}
+                              placeholder="1"
+                              className="flex-1 p-2.5 rounded-lg bg-white dark:bg-bg border border-gray-200 dark:border-border text-xs text-text font-bold text-right focus:outline-none focus:border-primary font-mono shadow-sm"
+                            />
+                            <span className="px-3 py-2.5 rounded-lg bg-gray-100 dark:bg-bg/80 border border-gray-200 dark:border-border text-xs font-semibold text-text-muted shrink-0 min-w-16 text-center">
+                              {currentProd?.unit || 'Adet'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Fiyat ve Satır Toplamı Rozetleri */}
+                        <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-border text-xs">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-text-muted font-medium">Bayi Fiyatı</span>
+                            <span className="inline-flex items-center px-2 py-0.5 mt-0.5 rounded-md font-mono font-bold text-text bg-gray-100 dark:bg-bg/80 border border-gray-200 dark:border-border">
+                              {row.unit_price ? row.unit_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'} TL
+                            </span>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-text-muted font-medium">Satır Toplamı</span>
+                            <span className="inline-flex items-center px-2.5 py-0.5 mt-0.5 rounded-md font-mono font-bold text-primary bg-primary/10 border border-primary/20">
+                              {row.total_price ? row.total_price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'} TL
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Yetersiz Stok Uyarısı */}
+                        {row.stock_status === 'insufficient' && (
+                          <div className="p-2.5 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                            <div className="flex flex-col gap-0.5">
+                              <span>{row.stock_message || 'Yetersiz stok! Eksik kalan kısım için Üretim İş Emri planlanacaktır.'}</span>
+                              {row.available_stock !== undefined && (
+                                <span className="font-mono text-[11px] opacity-85">(Mevcut Serbest Stok: {row.available_stock})</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
