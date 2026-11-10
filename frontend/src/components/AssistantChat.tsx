@@ -33,7 +33,7 @@ export const AssistantChat: React.FC = () => {
   const userGreetingName = user?.full_name ? `${user.full_name} (${roleTitle})` : roleTitle;
 
   const getInitialGreeting = (): string => {
-    return `Merhaba ${userGreetingName}, Günay Kimya ERP Asistanı'na hoş geldiniz. Size nasıl yardımcı olabilirim? Aşağıdaki hızlı başlıklardan seçebilir veya sorunuzu doğrudan yazabilirsiniz.`;
+    return `Merhaba ${userGreetingName}, Günay Kimya ERP Yapay Zeka Asistanı'na hoş geldiniz. Fabrikamızdaki süreçleri kolaylaştırmak için buradayım. Bugün hangi departmanın iş akışını, stok durumunu veya üretim emirlerini denetlemek istersiniz?`;
   };
 
   useEffect(() => {

@@ -207,8 +207,8 @@ async def chat(
     can_hr = is_admin or _check_permission(current_user, "hr_personnel", {"IK", "YONETIM"})
     can_quotes = is_admin or _check_permission(current_user, "quotes", {"SATIS", "MUHASEBE", "YONETIM"})
 
-    # --- Soru Tipi 1: "Hangi hammadde azaldı?" / "Kritik stoklar" ---
-    if any(w in q for w in ["hangi hammadde", "hammadde azaldi", "kritik stok", "azalan hammadde", "eksik hammadde", "hammadde"]):
+    # --- Soru Tipi 1: "Hangi hammadde azaldı?" / "Kritik stoklar" / "Bitmek üzere olanlar" ---
+    if any(w in q for w in ["hangi hammadde", "hammadde azaldi", "kritik stok", "azalan hammadde", "eksik hammadde", "hammadde", "bitmek uzere", "biten hammadde"]):
         if not can_inventory:
             return {"answer": "Bu bilgiye yetkiniz yok."}
 
@@ -298,7 +298,7 @@ async def chat(
         }
 
     # --- Soru Tipi 4: "Acil üretim emirleri" / "Reaktör / İş emirleri" ---
-    if any(w in q for w in ["uretim emri", "is emri", "reaktor", "eksik stok", "uretim", "recete", "formul", "maliyet"]):
+    if any(w in q for w in ["uretim emri", "is emri", "reaktor", "eksik stok", "uretim", "recete", "formul", "maliyet", "acil uretim", "acil"]):
         if not can_production:
             return {"answer": "Bu bilgiye yetkiniz yok."}
 
