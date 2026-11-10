@@ -11,8 +11,9 @@ from app.core.config import get_db
 from app.core.security import get_current_user, get_optional_current_user
 from app.models.auth import User, UserRoleEnum
 from app.models.cari import CariAccount
-from app.models.inventory import Item, BatchLot
+from app.models.inventory import Item, BatchLot, StockMovement
 from app.models.orders import Order, Planning, OrderItem, B2BBayiFiyatlari
+from app.models.manufacturing import Recipe, RecipeIngredient, ProductionOrder, ProductionStatus
 from app.models.notifications import Notification
 from app.models.production_alerts import UretimEmri
 from app.schemas.orders import (
@@ -24,46 +25,21 @@ from app.schemas.orders import (
 router = APIRouter(prefix="/orders", tags=["Orders & B2B Portal"])
 
 
-async def queue_production_if_short(
-    db: AsyncSession, order: Order, item: Item, quantity: Decimal
-) -> None:
-    """Create a production work order and inbox notification for only the uncovered quantity."""
-    lots = (await db.scalars(select(BatchLot).where(BatchLot.item_id == item.id))).all()
-    physical = sum(
-        (lot.quantity or Decimal("0") for lot in lots if lot.status not in ("Bloke", "Reddedildi")),
-        Decimal("0"),
-    )
-    available = max(Decimal("0"), physical - (item.rezerv_miktar or Decimal("0")))
-    shortage = max(Decimal("0"), quantity - available)
-    if shortage <= 0:
-        return
-
-    db.add(UretimEmri(
-        order_id=order.id,
-        item_id=item.id,
-        requested_quantity=quantity,
-        shortage_quantity=shortage,
-        status="Beklemede - Sipariş Tetikli",
-        notes=f"Sipariş #{order.id} için {item.name} ürününde eksik stok.",
-    ))
-    db.add(Notification(
-        recipient_role="URETIM",
-        title="Eksik stok üretim planlaması",
-        message=f"⚠️ Eksik Stok Bildirimi: {item.name} için acil üretim planlaması gerekiyor! Eksik miktar: {shortage} {item.unit}.",
-        event_type="ORDER_STOCK_SHORTAGE",
-        reference_module="ORDER",
-        reference_id=order.id,
-    ))
-
-
-async def get_item_price_for_user(item: Item, user: Optional[User], db: AsyncSession) -> tuple[Decimal, Optional[Decimal]]:
+async def get_item_price_for_user(
+    item: Item,
+    user: Optional[User],
+    db: AsyncSession,
+    cari_id: Optional[int] = None,
+    is_b2b: bool = False
+) -> tuple[Decimal, Optional[Decimal]]:
     """
     Returns (effective_price, b2b_special_price_if_exists).
     Rule:
-    Giriş yapan kullanıcının rolü B2B Bayi ise, fiyat hesaplama fonksiyonunda
+    Giriş yapan kullanıcının rolü B2B Bayi ise veya sipariş bir B2B siparişi ise,
     bayinin özel fiyat tablosunu (B2BBayiFiyatlari) baz al, değilse standart liste fiyatını getir.
+    İstemciden gelen fiyat kesinlikle kullanılmaz, backend hesaplar.
     """
-    is_bayi = False
+    is_bayi = is_b2b
     special_price = None
 
     if user:
@@ -79,11 +55,13 @@ async def get_item_price_for_user(item: Item, user: Optional[User], db: AsyncSes
         elif user.user_code and user.user_code.startswith("B2B"):
             is_bayi = True
 
+    effective_cari_id = cari_id or (user.cari_id if user else None)
+    if is_bayi and (effective_cari_id or (user and user.user_code)):
         conditions = []
-        if user.user_code:
+        if user and user.user_code:
             conditions.append(B2BBayiFiyatlari.dealer_code == user.user_code)
-        if user.cari_id:
-            conditions.append(B2BBayiFiyatlari.cari_id == user.cari_id)
+        if effective_cari_id:
+            conditions.append(B2BBayiFiyatlari.cari_id == effective_cari_id)
 
         if conditions:
             stmt = select(B2BBayiFiyatlari).where(
@@ -94,14 +72,252 @@ async def get_item_price_for_user(item: Item, user: Optional[User], db: AsyncSes
             )
             res = await db.execute(stmt)
             match = res.scalar_one_or_none()
-            if match:
+            if match and match.special_price is not None:
                 special_price = match.special_price
 
     if is_bayi and special_price is not None:
-        return special_price, special_price
+        return Decimal(str(special_price)), Decimal(str(special_price))
 
     list_p = item.list_price if item.list_price is not None else Decimal("0.00")
-    return list_p, special_price
+    return Decimal(str(list_p)), special_price
+
+
+async def process_order_items_and_inventory(
+    db: AsyncSession,
+    order: Order,
+    items_in: list,
+    user: User,
+    override_prices: Optional[dict[int, Decimal]] = None
+) -> Decimal:
+    """
+    Tüm stok ve sipariş kalem işlemlerini tek transaction'da yönetir:
+    1. Birim fiyatı backend kendisi hesaplar (bayi özel fiyatı veya liste fiyatı). İstemciden gelen fiyat kullanılmaz.
+    2. Her kalem için serbest stoğa bakar (fiziksel - rezerv).
+       - Yeterliyse FEFO'ya göre partilerden rezerv eder.
+       - Eksik miktar varsa o ürün için 'Beklemede - Sipariş Tetikli' üretim emri oluşturur
+         ve reçeteye (BOM) göre ham maddeleri rezerve eder.
+    3. Her adım stok hareketleri tablosuna (StockMovement) yazılır (kim, ne zaman, hangi emir/sipariş).
+    4. Satır kilidi (PostgreSQL'de with_for_update, SQLite'ta serializable) kullanır. Stok eksiye düşemez.
+    """
+    dialect = db.bind.dialect.name if db.bind else "sqlite"
+    is_sqlite = "sqlite" in dialect.lower()
+
+    total_calc = Decimal("0.00")
+    items_desc_list = []
+
+    for it_in in items_in:
+        item_id = it_in.item_id
+        line_qty = Decimal(str(it_in.quantity))
+        if line_qty <= Decimal("0.000"):
+            continue
+
+        # 1. Fetch Item with pessimistic row lock
+        stmt_item = select(Item).where(Item.id == item_id)
+        if not is_sqlite:
+            stmt_item = stmt_item.with_for_update()
+        target_item = (await db.execute(stmt_item)).scalar_one_or_none()
+        if not target_item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Ürün #{item_id} bulunamadı.")
+
+        # Backend birim fiyat hesaplama (İstemciden gelen fiyat KULLANILMAZ; onaylı teklif dönüştürme durumunda override_prices geçerlidir) - Madde 1
+        if override_prices and item_id in override_prices:
+            unit_price_dec = Decimal(str(override_prices[item_id]))
+        else:
+            is_b2b = bool(getattr(order, "is_b2b_order", False) or getattr(order, "is_b2b", False))
+            unit_price, _ = await get_item_price_for_user(target_item, user, db, cari_id=order.cari_id, is_b2b=is_b2b)
+            unit_price_dec = Decimal(str(unit_price))
+        line_total = line_qty * unit_price_dec
+        total_calc += line_total
+
+        order_item = OrderItem(
+            order_id=order.id,
+            item_id=target_item.id,
+            quantity=line_qty,
+            unit_price=unit_price_dec,
+            total_price=line_total
+        )
+        db.add(order_item)
+        items_desc_list.append(f"{line_qty} {target_item.unit} {target_item.name} ({unit_price_dec} TL)")
+
+        # 2. Serbest stok kontrolü & FEFO parti rezervasyonu - Madde 2
+        stmt_lots = (
+            select(BatchLot)
+            .where(
+                and_(
+                    BatchLot.item_id == target_item.id,
+                    BatchLot.status.in_(["Serbest", "APPROVED"]),
+                    BatchLot.quantity > Decimal("0.000")
+                )
+            )
+            .order_by(
+                BatchLot.expiration_date.asc().nulls_last(),
+                BatchLot.received_at.asc(),
+                BatchLot.id.asc()
+            )
+        )
+        if not is_sqlite:
+            stmt_lots = stmt_lots.with_for_update()
+        lots = (await db.scalars(stmt_lots)).all()
+
+        physical_stock = sum((lot.quantity for lot in lots), Decimal("0.000"))
+        lot_reserved = sum(((lot.rezerv_miktar or Decimal("0.000")) for lot in lots), Decimal("0.000"))
+        item_reserved = target_item.rezerv_miktar or Decimal("0.000")
+        current_rezerv = max(lot_reserved, item_reserved)
+        free_stock = max(Decimal("0.000"), physical_stock - current_rezerv)
+        # logging for debugging
+        print(f"[ORDER_STOCK_CHECK] Item: {target_item.sku}, Phys: {physical_stock}, LotRez: {lot_reserved}, ItemRez: {item_reserved}, Free: {free_stock}, Req: {line_qty}")
+
+        covered_qty = min(line_qty, free_stock)
+        shortage_qty = max(Decimal("0.000"), line_qty - free_stock)
+
+        # Mevcut serbest stoğun FEFO partilerine rezerve edilmesi
+        if covered_qty > Decimal("0.000"):
+            target_item.rezerv_miktar = (target_item.rezerv_miktar or Decimal("0.000")) + covered_qty
+            rem_to_reserve = covered_qty
+            for lot in lots:
+                if rem_to_reserve <= Decimal("0.000"):
+                    break
+                lot_free = max(Decimal("0.000"), lot.quantity - (lot.rezerv_miktar or Decimal("0.000")))
+                if lot_free <= Decimal("0.000"):
+                    continue
+                alloc = min(lot_free, rem_to_reserve)
+                lot.rezerv_miktar = (lot.rezerv_miktar or Decimal("0.000")) + alloc
+                rem_to_reserve -= alloc
+
+                # Stok hareketi kaydı (kim, ne zaman, hangi sipariş) - Madde 3
+                db.add(StockMovement(
+                    item_id=target_item.id,
+                    batch_lot_id=lot.id,
+                    movement_type="ORDER_RESERVATION",
+                    quantity=alloc,
+                    order_id=order.id,
+                    user_id=user.id if user else None,
+                    performed_by=user.full_name if user else "Sistem",
+                    notes=f"Sipariş #{order.id} için FEFO parti rezervasyonu (Lot: {lot.batch_number})"
+                ))
+
+        # Eksik miktar varsa: 'Beklemede - Sipariş Tetikli' üretim emri ve BOM hammadde rezervasyonu
+        if shortage_qty > Decimal("0.000"):
+            # UretimEmri kaydı (siparişe bağlı)
+            db.add(UretimEmri(
+                order_id=order.id,
+                item_id=target_item.id,
+                requested_quantity=line_qty,
+                shortage_quantity=shortage_qty,
+                status="Beklemede - Sipariş Tetikli",
+                notes=f"Sipariş #{order.id} için {target_item.name} stok açığı: {shortage_qty} {target_item.unit}."
+            ))
+
+            # Reçeteye (BOM) göre hammadde rezervasyonu
+            stmt_recipe = (
+                select(Recipe)
+                .options(
+                    selectinload(Recipe.ingredients).selectinload(RecipeIngredient.raw_material)
+                )
+                .where(Recipe.output_item_id == target_item.id)
+            )
+            recipe = (await db.scalars(stmt_recipe)).first()
+
+            prod_order_id = None
+            if recipe:
+                prod_order_no = f"PRD-ORD-{order.id}-{target_item.id}-{uuid.uuid4().hex[:4].upper()}"
+                prod_order = ProductionOrder(
+                    order_number=prod_order_no,
+                    recipe_id=recipe.id,
+                    target_quantity=shortage_qty,
+                    status=ProductionStatus.PENDING,
+                    phase="BEKLEMEDE_SIPARIS_TETIKLI",
+                    cari_id=order.cari_id,
+                    order_id=order.id,
+                    notes=f"Sipariş #{order.id} tetikli üretim emri."
+                )
+                db.add(prod_order)
+                await db.flush()
+                prod_order_id = prod_order.id
+
+                base_qty = recipe.base_quantity if recipe.base_quantity and recipe.base_quantity > Decimal("0.000") else Decimal("1000.000")
+                scale_factor = shortage_qty / base_qty
+
+                for ing in recipe.ingredients:
+                    raw_item_id = ing.raw_material_item_id
+                    needed_raw = ing.required_quantity * scale_factor
+
+                    stmt_raw = select(Item).where(Item.id == raw_item_id)
+                    if not is_sqlite:
+                        stmt_raw = stmt_raw.with_for_update()
+                    raw_item = (await db.execute(stmt_raw)).scalar_one_or_none()
+                    if raw_item:
+                        raw_item.rezerv_miktar = (raw_item.rezerv_miktar or Decimal("0.000")) + needed_raw
+
+                        stmt_raw_lots = (
+                            select(BatchLot)
+                            .where(
+                                and_(
+                                    BatchLot.item_id == raw_item_id,
+                                    BatchLot.status.in_(["Serbest", "APPROVED"]),
+                                    BatchLot.quantity > Decimal("0.000")
+                                )
+                            )
+                            .order_by(
+                                BatchLot.expiration_date.asc().nulls_last(),
+                                BatchLot.received_at.asc(),
+                                BatchLot.id.asc()
+                            )
+                        )
+                        if not is_sqlite:
+                            stmt_raw_lots = stmt_raw_lots.with_for_update()
+                        raw_lots = (await db.scalars(stmt_raw_lots)).all()
+
+                        rem_raw = needed_raw
+                        for r_lot in raw_lots:
+                            if rem_raw <= Decimal("0.000"):
+                                break
+                            r_free = max(Decimal("0.000"), r_lot.quantity - (r_lot.rezerv_miktar or Decimal("0.000")))
+                            if r_free <= Decimal("0.000"):
+                                continue
+                            alloc_r = min(r_free, rem_raw)
+                            r_lot.rezerv_miktar = (r_lot.rezerv_miktar or Decimal("0.000")) + alloc_r
+                            rem_raw -= alloc_r
+
+                            db.add(StockMovement(
+                                item_id=raw_item_id,
+                                batch_lot_id=r_lot.id,
+                                movement_type="RAW_MATERIAL_RESERVATION",
+                                quantity=alloc_r,
+                                order_id=order.id,
+                                production_order_id=prod_order_id,
+                                user_id=user.id if user else None,
+                                performed_by=user.full_name if user else "Sistem",
+                                notes=f"Sipariş #{order.id} tetikli üretim emri #{prod_order_no} hammadde FEFO rezervasyonu (Lot: {r_lot.batch_number})"
+                            ))
+
+                        if rem_raw > Decimal("0.000"):
+                            db.add(StockMovement(
+                                item_id=raw_item_id,
+                                batch_lot_id=None,
+                                movement_type="RAW_MATERIAL_RESERVATION",
+                                quantity=rem_raw,
+                                order_id=order.id,
+                                production_order_id=prod_order_id,
+                                user_id=user.id if user else None,
+                                performed_by=user.full_name if user else "Sistem",
+                                notes=f"Sipariş #{order.id} tetikli üretim emri #{prod_order_no} hammadde genel rezervasyonu"
+                            ))
+
+            # Üretim bildirim kaydı
+            db.add(Notification(
+                recipient_role="URETIM",
+                title="Eksik stok üretim planlaması",
+                message=f"⚠️ Eksik Stok Bildirimi: {target_item.name} için acil üretim planlaması gerekiyor! Eksik miktar: {shortage_qty} {target_item.unit}.",
+                event_type="ORDER_STOCK_SHORTAGE",
+                reference_module="ORDER",
+                reference_id=order.id,
+            ))
+
+    if not order.items_summary and items_desc_list:
+        order.items_summary = ", ".join(items_desc_list)
+
+    return total_calc
 
 
 @router.post("/check-stock", response_model=CheckStockResponse)
@@ -185,50 +401,17 @@ async def create_b2b_order(
         order_date=datetime.datetime.now(datetime.timezone.utc),
         status="Beklemede",
         is_b2b_order=True,
-        total_amount=order_in.total_amount,
+        total_amount=Decimal("0.00"),
         items_summary=order_in.items_summary,
         notes=order_in.notes
     )
     db.add(new_order)
     await db.flush()
 
-    total_calc = Decimal("0.00")
-    items_desc_list = []
-
+    # Process items, backend pricing, FEFO reservations & deficit production orders (Requirements 1, 2, 3, 4)
     if order_in.items:
-        for it_in in order_in.items:
-            stmt_it = select(Item).where(Item.id == it_in.item_id)
-            res_it = await db.execute(stmt_it)
-            target_item = res_it.scalar_one_or_none()
-            if not target_item:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Ürün #{it_in.item_id} bulunamadı.")
-
-            # B2B unit prices are always resolved server-side; never trust a price sent by the browser.
-            unit_price, _ = await get_item_price_for_user(target_item, current_user, db)
-
-            line_qty = Decimal(str(it_in.quantity))
-            unit_price_dec = Decimal(str(unit_price))
-            line_total = line_qty * unit_price_dec
-            total_calc += line_total
-
-            order_item = OrderItem(
-                order_id=new_order.id,
-                item_id=target_item.id,
-                quantity=line_qty,
-                unit_price=unit_price_dec,
-                total_price=line_total
-            )
-            db.add(order_item)
-
-            await queue_production_if_short(db, new_order, target_item, line_qty)
-
-            # Do NOT decrease physical stock immediately; increase reserved quantity
-            target_item.rezerv_miktar = (target_item.rezerv_miktar or Decimal("0.000")) + line_qty
-            items_desc_list.append(f"{line_qty} {target_item.unit} {target_item.name} ({unit_price_dec} TL)")
-
-    if not new_order.items_summary and items_desc_list:
-        new_order.items_summary = ", ".join(items_desc_list)
-    new_order.total_amount = total_calc
+        calc_total = await process_order_items_and_inventory(db, new_order, order_in.items, current_user)
+        new_order.total_amount = calc_total
 
     # Automatically generate default Planning ticket
     planning_code = f"PLN-B2B-{new_order.id}-{uuid.uuid4().hex[:6].upper()}"
@@ -282,53 +465,17 @@ async def create_standard_order(
         order_date=datetime.datetime.now(datetime.timezone.utc),
         status=order_in.status,
         is_b2b_order=order_in.is_b2b_order,
-        total_amount=order_in.total_amount,
+        total_amount=Decimal("0.00"),
         items_summary=order_in.items_summary,
         notes=order_in.notes
     )
     db.add(new_order)
     await db.flush()
 
-    total_calc = Decimal("0.00")
-    items_desc_list = []
-
+    # Process items, backend pricing, FEFO reservations & deficit production orders (Requirements 1, 2, 3, 4)
     if order_in.items:
-        for it_in in order_in.items:
-            stmt_it = select(Item).where(Item.id == it_in.item_id)
-            res_it = await db.execute(stmt_it)
-            target_item = res_it.scalar_one_or_none()
-            if not target_item:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Ürün #{it_in.item_id} bulunamadı.")
-
-            unit_price = it_in.unit_price
-            if unit_price is None or unit_price <= Decimal("0"):
-                eff_price, _ = await get_item_price_for_user(target_item, current_user, db)
-                unit_price = eff_price
-
-            line_qty = Decimal(str(it_in.quantity))
-            unit_price_dec = Decimal(str(unit_price))
-            line_total = line_qty * unit_price_dec
-            total_calc += line_total
-
-            order_item = OrderItem(
-                order_id=new_order.id,
-                item_id=target_item.id,
-                quantity=line_qty,
-                unit_price=unit_price_dec,
-                total_price=line_total
-            )
-            db.add(order_item)
-
-            await queue_production_if_short(db, new_order, target_item, line_qty)
-
-            # Do NOT decrease physical stock immediately; increase reserved quantity
-            target_item.rezerv_miktar = (target_item.rezerv_miktar or Decimal("0.000")) + line_qty
-            items_desc_list.append(f"{line_qty} {target_item.unit} {target_item.name} ({unit_price_dec} TL)")
-
-    if not new_order.items_summary and items_desc_list:
-        new_order.items_summary = ", ".join(items_desc_list)
-    if (new_order.total_amount == Decimal("0.00") or new_order.total_amount is None) and total_calc > Decimal("0"):
-        new_order.total_amount = total_calc
+        calc_total = await process_order_items_and_inventory(db, new_order, order_in.items, current_user)
+        new_order.total_amount = calc_total
 
     planning_code = f"PLN-ORD-{new_order.id}-{uuid.uuid4().hex[:6].upper()}"
     new_planning = Planning(

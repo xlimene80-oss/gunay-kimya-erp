@@ -15,6 +15,7 @@ from app.routers.purchasing import router as purchasing_router
 from app.routers.hr import router as hr_router
 from app.routers.reports import router as reports_router
 from app.routers.ai import router as ai_router
+from app.routers.proforma import router as proforma_router
 
 api_router = APIRouter()
 
@@ -38,3 +39,4 @@ api_router.include_router(purchasing_router)
 api_router.include_router(hr_router)
 api_router.include_router(reports_router)
 api_router.include_router(ai_router)
+api_router.include_router(proforma_router)

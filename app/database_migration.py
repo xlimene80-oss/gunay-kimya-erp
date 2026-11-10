@@ -75,6 +75,7 @@ async def run_all_migrations():
             ("bin_code", "VARCHAR(50)", "VARCHAR(50)"),
             ("unit_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
             ("total_material_cost_usd", "NUMERIC(14, 4) DEFAULT 0.0000", "NUMERIC(14, 4) DEFAULT 0.0000"),
+            ("rezerv_miktar", "NUMERIC(14, 3) DEFAULT 0.000", "NUMERIC(14, 3) DEFAULT 0.000"),
         ]
 
         order_cols = [
@@ -83,6 +84,7 @@ async def run_all_migrations():
             ("is_manual", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
             ("delivery_date", "TIMESTAMP", "TIMESTAMP"),
             ("notes", "TEXT", "TEXT"),
+            ("order_id", "INTEGER", "INTEGER"),
         ]
 
         purchasing_cols = [

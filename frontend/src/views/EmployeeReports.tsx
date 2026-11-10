@@ -23,6 +23,8 @@ interface EmployeeReportItem {
   title?: string;
   content: string;
   created_at: string;
+  author_name?: string;
+  user_email?: string;
 }
 
 export const EmployeeReports: React.FC = () => {
@@ -32,6 +34,22 @@ export const EmployeeReports: React.FC = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
+
+  // Admin and Manager role check
+  const userRoles = (user?.roles || []).map((r) => r.toLowerCase());
+  const userRolesStr = userRoles.join(' ');
+  const isAdminOrManager =
+    user?.role === 'admin' ||
+    userRolesStr.includes('admin') ||
+    userRolesStr.includes('müdür') ||
+    userRolesStr.includes('mudur') ||
+    userRolesStr.includes('yönetici') ||
+    userRolesStr.includes('yonetici') ||
+    userRolesStr.includes('yönetim') ||
+    userRolesStr.includes('yonetim');
+
+  const [usersList, setUsersList] = useState<{ id: number; full_name: string; email: string }[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>('ALL');
 
   // Form State
   const [reportType, setReportType] = useState<string>('Gunluk');
@@ -44,10 +62,28 @@ export const EmployeeReports: React.FC = () => {
   const [formSuccess, setFormSuccess] = useState<boolean>(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  // Load user list for filtering if admin/manager
+  useEffect(() => {
+    if (isAdminOrManager) {
+      axios
+        .get('/api/v1/auth/users')
+        .then((res) => {
+          setUsersList(res.data || []);
+        })
+        .catch((err) => {
+          console.error('Kullanıcı listesi alınamadı:', err);
+        });
+    }
+  }, [isAdminOrManager]);
+
   const fetchReports = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('/api/v1/reports/employee');
+      const params: Record<string, any> = {};
+      if (isAdminOrManager && selectedUserId !== 'ALL') {
+        params.user_id = selectedUserId;
+      }
+      const res = await axios.get('/api/v1/reports/employee', { params });
       setReports(res.data || []);
     } catch (err: any) {
       console.error('Raporlar yüklenemedi:', err);
@@ -58,7 +94,7 @@ export const EmployeeReports: React.FC = () => {
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [selectedUserId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +147,7 @@ export const EmployeeReports: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-text flex items-center gap-2">
             <FileText className="w-6 h-6 text-primary" />
-            Personel ve Plasiyer Faaliyet Raporlama
+            Faaliyet Raporlarım
           </h1>
           <p className="text-xs text-text-muted mt-0.5">
             Günlük operasyonel ilerlemelerinizi, saha/bayi ziyaretlerinizi ve planlarınızı merkeze aktarın
@@ -262,7 +298,25 @@ export const EmployeeReports: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {isAdminOrManager && (
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="p-1.5 rounded-xl bg-bg border border-border text-xs text-text font-semibold focus:outline-none focus:border-primary transition"
+                  title="Personel Filtresi"
+                >
+                  <option value="ALL">👥 Tüm Personeller</option>
+                  {usersList.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name} ({u.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="relative">
               <Search className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -270,7 +324,7 @@ export const EmployeeReports: React.FC = () => {
                 placeholder="Raporlarda Ara..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-3 py-1.5 rounded-xl bg-bg border border-border text-xs text-text focus:outline-none focus:border-primary transition w-44 sm:w-56"
+                className="pl-9 pr-3 py-1.5 rounded-xl bg-bg border border-border text-xs text-text focus:outline-none focus:border-primary transition w-36 sm:w-52"
               />
             </div>
 
@@ -316,10 +370,16 @@ export const EmployeeReports: React.FC = () => {
                     className="flex items-start justify-between cursor-pointer gap-4"
                   >
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-primary-soft text-primary border border-primary-border">
                           {item.report_type}
                         </span>
+                        {item.author_name && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            {item.author_name}
+                          </span>
+                        )}
                         <span className="text-[11px] text-text-muted font-mono flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
                           {new Date(item.created_at).toLocaleString('tr-TR')}

@@ -22,6 +22,7 @@ ALL_MODULES = [
     {"id": "ana_panel", "name": "Ana Panel", "category": "Ana Panel"},
     # 2. Satış & B2B
     {"id": "orders", "name": "Siparişler", "category": "Satış & B2B"},
+    {"id": "quotes", "name": "Teklifler & Proforma", "category": "Satış & B2B"},
     {"id": "b2b", "name": "B2B Bayi Siparişleri", "category": "Satış & B2B"},
     {"id": "customers", "name": "Müşteriler", "category": "Satış & B2B"},
     {"id": "logistics", "name": "Sevkiyat / İrsaliye", "category": "Satış & B2B"},
@@ -79,6 +80,8 @@ def get_customer_permissions() -> Dict[str, Dict[str, bool]]:
     # B2B Bayi can read/create orders and view statement
     for m in ["b2b", "orders"]:
         perms[m] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
+    # Quotes / Proforma for customer: read and approve/respond only
+    perms["quotes"] = {"read": True, "create": False, "update": False, "delete": False, "approve": True}
     # Compatibility keys used by older frontend routes and permission checks.
     perms["b2b_orders"] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
     perms["b2b_tracking"] = {"read": True, "create": False, "update": False, "delete": False, "approve": False}
@@ -90,8 +93,9 @@ def get_default_department_permissions(code: str) -> Dict[str, Dict[str, bool]]:
     perms = get_empty_permissions()
     c = code.upper().strip()
 
-    # Everyone internal can read Ana Panel
+    # Everyone internal can read Ana Panel and enter/view their own Faaliyet Raporlarım
     perms["ana_panel"]["read"] = True
+    perms["reports_employee"] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
 
     if c in ["YONETIM", "ADMIN"]:
         return get_admin_permissions()
@@ -103,8 +107,8 @@ def get_default_department_permissions(code: str) -> Dict[str, Dict[str, bool]]:
             perms[m]["read"] = True
 
     elif c == "SATIS":
-        for m in ["orders", "b2b", "customers", "logistics", "manual_orders_planning"]:
-            perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": False}
+        for m in ["orders", "quotes", "b2b", "customers", "logistics", "manual_orders_planning"]:
+            perms[m] = {"read": True, "create": True, "update": True, "delete": True, "approve": False}
         perms["reports_employee"] = {"read": True, "create": True, "update": False, "delete": False, "approve": False}
         perms["inventory_stock"]["read"] = True
 
@@ -122,8 +126,9 @@ def get_default_department_permissions(code: str) -> Dict[str, Dict[str, bool]]:
     elif c == "MUHASEBE":
         for m in ["fin_invoices", "fin_payments", "fin_accounts", "dashboard"]:
             perms[m] = {"read": True, "create": True, "update": True, "delete": False, "approve": True}
-        for m in ["orders", "customers", "logistics", "purchasing_requests"]:
+        for m in ["orders", "quotes", "customers", "logistics", "purchasing_requests"]:
             perms[m]["read"] = True
+        perms["quotes"]["approve"] = True
 
     elif c == "IK":
         for m in ["hr_interviews", "hr_personnel", "hr_leave", "hr_attendance", "hr_movements", "reports_employee"]:
@@ -244,6 +249,12 @@ class User(Base, TimestampMixin):
                     if mod_id not in base:
                         base[mod_id] = {act: False for act in MODULE_ACTIONS}
                     base[mod_id]["read"] = acts
+
+        if self.role == UserRoleEnum.STAFF:
+            if "reports_employee" not in base:
+                base["reports_employee"] = {act: False for act in MODULE_ACTIONS}
+            base["reports_employee"]["read"] = True
+            base["reports_employee"]["create"] = True
 
         return base
 

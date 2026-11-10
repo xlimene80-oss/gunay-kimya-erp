@@ -34,7 +34,8 @@ from app.models.inventory import (
     GoodsReceipt, GoodsReceiptItem,
     StockTransfer, StockTransferItem,
     DispatchOrder, DispatchItem, DispatchStatus,
-    BarcodeUnit, BarcodeType, BarcodeStatus
+    BarcodeUnit, BarcodeType, BarcodeStatus,
+    StockMovement
 )
 
 # 2.1 Hazmat, Warehouse Zones & Storage Compatibility
@@ -98,3 +99,8 @@ from app.models.reports import (
 
 # 12. Order-triggered production work queue
 from app.models.production_alerts import UretimEmri
+
+# 13. Proforma Quotes & Discount Authorization
+from app.models.proforma import (
+    ProformaQuote, ProformaQuoteItem, ProformaSetting
+)

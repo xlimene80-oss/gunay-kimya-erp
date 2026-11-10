@@ -7,7 +7,7 @@ from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.inventory import BatchLot, Item
+from app.models.inventory import BatchLot, Item, StockMovement
 from app.models.manufacturing import (
     ProductionOrder,
     Recipe,
@@ -231,7 +231,9 @@ class BOMEngine:
     async def execute_fefo_consumption(
         cls,
         db: AsyncSession,
-        order: ProductionOrder
+        order: ProductionOrder,
+        performed_by: str = "Sistem",
+        create_finished_lot: bool = False
     ) -> BOMExecutionResult:
         """
         Executes dynamic FEFO consumption across approved lots:
@@ -283,7 +285,15 @@ class BOMEngine:
                     break
 
                 deduct_amount = min(lot.quantity, remaining_to_deduct)
+                if lot.quantity < deduct_amount:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Stok eksiye düşemez! Lot '{lot.batch_number}' mevcut: {lot.quantity}, istenen: {deduct_amount}"
+                    )
                 lot.quantity -= deduct_amount
+                lot.rezerv_miktar = max(Decimal("0.000"), (lot.rezerv_miktar or Decimal("0.000")) - deduct_amount)
+                if raw_item:
+                    raw_item.rezerv_miktar = max(Decimal("0.000"), (raw_item.rezerv_miktar or Decimal("0.000")) - deduct_amount)
                 remaining_to_deduct -= deduct_amount
 
                 # Determine USD unit cost for this specific lot
@@ -300,6 +310,18 @@ class BOMEngine:
                     total_cost_usd=line_total_cost_usd
                 )
                 db.add(consumption)
+
+                # Record to StockMovement ledger (Requirement 3)
+                db.add(StockMovement(
+                    item_id=ing.raw_material_item_id,
+                    batch_lot_id=lot.id,
+                    movement_type="PRODUCTION_CONSUMPTION",
+                    quantity=-deduct_amount,
+                    production_order_id=order.id,
+                    order_id=getattr(order, "order_id", None),
+                    performed_by=performed_by,
+                    notes=f"Üretim emri #{order.order_number} başlangıcı hammadde sarfiyatı (Lot: {lot.batch_number})"
+                ))
 
                 consumption_records.append(ConsumptionLineResult(
                     raw_material_name=raw_name,
@@ -331,48 +353,49 @@ class BOMEngine:
         order.total_material_cost_usd = total_production_material_cost_usd
         order.unit_cost_usd = unit_cost_usd
 
-        # Step 4: Ensure Finished Good Batch Lot is Created/Updated with USD Cost
+        # Step 4: Ensure Finished Good Batch Lot is Created/Updated with USD Cost if requested
         finished_lot_num = order.lot_number or f"LOT-{order.order_number}"
-        today = datetime.date.today()
-        expiration_date = today + datetime.timedelta(days=730)
+        if create_finished_lot:
+            today = datetime.date.today()
+            expiration_date = today + datetime.timedelta(days=730)
 
-        is_outgoing_qc = getattr(recipe.output_item, "qc_outgoing_required", False) if recipe.output_item else False
-        out_status = "Karantina" if is_outgoing_qc else "Serbest"
-        out_qc_notes = (
-            "Dolum tamamlandı: Çıkış kalite kontrol onayı bekleniyor."
-            if is_outgoing_qc
-            else "Üretim tamamlandı: Serbest."
-        )
+            is_outgoing_qc = getattr(recipe.output_item, "qc_outgoing_required", False) if recipe.output_item else False
+            out_status = "Karantina" if is_outgoing_qc else "Serbest"
+            out_qc_notes = (
+                "Dolum tamamlandı: Çıkış kalite kontrol onayı bekleniyor."
+                if is_outgoing_qc
+                else "Üretim tamamlandı: Serbest."
+            )
 
-        output_lot = await db.scalar(
-            select(BatchLot).where(
-                and_(
-                    BatchLot.item_id == recipe.output_item_id,
-                    BatchLot.batch_number == finished_lot_num
+            output_lot = await db.scalar(
+                select(BatchLot).where(
+                    and_(
+                        BatchLot.item_id == recipe.output_item_id,
+                        BatchLot.batch_number == finished_lot_num
+                    )
                 )
             )
-        )
 
-        if output_lot:
-            output_lot.quantity += order.target_quantity
-            output_lot.unit_cost_usd = unit_cost_usd
-            output_lot.total_material_cost_usd = (output_lot.total_material_cost_usd or Decimal("0.0000")) + total_production_material_cost_usd
-            if is_outgoing_qc:
-                output_lot.status = "Karantina"
-                output_lot.qc_notes = out_qc_notes
-        else:
-            output_lot = BatchLot(
-                batch_number=finished_lot_num,
-                item_id=recipe.output_item_id,
-                warehouse="Mamul Ürün Deposu",
-                quantity=order.target_quantity,
-                expiration_date=expiration_date,
-                status=out_status,
-                qc_notes=out_qc_notes,
-                unit_cost_usd=unit_cost_usd,
-                total_material_cost_usd=total_production_material_cost_usd
-            )
-            db.add(output_lot)
+            if output_lot:
+                output_lot.quantity += order.target_quantity
+                output_lot.unit_cost_usd = unit_cost_usd
+                output_lot.total_material_cost_usd = (output_lot.total_material_cost_usd or Decimal("0.0000")) + total_production_material_cost_usd
+                if is_outgoing_qc:
+                    output_lot.status = "Karantina"
+                    output_lot.qc_notes = out_qc_notes
+            else:
+                output_lot = BatchLot(
+                    batch_number=finished_lot_num,
+                    item_id=recipe.output_item_id,
+                    warehouse="Mamul Ürün Deposu",
+                    quantity=order.target_quantity,
+                    expiration_date=expiration_date,
+                    status=out_status,
+                    qc_notes=out_qc_notes,
+                    unit_cost_usd=unit_cost_usd,
+                    total_material_cost_usd=total_production_material_cost_usd
+                )
+                db.add(output_lot)
 
         await db.flush()
 

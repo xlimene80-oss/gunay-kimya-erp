@@ -13,6 +13,8 @@ class EmployeeReportCreate(EmployeeReportBase):
 class EmployeeReportResponse(EmployeeReportBase):
     id: int
     user_id: int
+    author_name: Optional[str] = None
+    user_email: Optional[str] = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

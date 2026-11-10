@@ -116,6 +116,7 @@ class BatchLot(Base, TimestampMixin):
     )
     warehouse: Mapped[str] = mapped_column(String(100), default="Hammadde Deposu", index=True, nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0.000"), nullable=False)
+    rezerv_miktar: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=Decimal("0.000"), nullable=False)
     expiration_date: Mapped[Optional[datetime.date]] = mapped_column(Date, index=True, nullable=True)
     received_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), 
@@ -427,6 +428,50 @@ class BarcodeSequence(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sequence_type: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     current_value: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+
+
+class StockMovement(Base, TimestampMixin):
+    """
+    Immutable ledger of all physical stock movements, reservations, consumptions, and receipts.
+    Tracks exact user, timestamp, order, and production order reference.
+    """
+    __tablename__ = "inv_stock_movements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False
+    )
+    batch_lot_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("inventory_batch_lots.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True
+    )
+    movement_type: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    # ORDER_RESERVATION, RAW_MATERIAL_RESERVATION, PRODUCTION_CONSUMPTION, PRODUCTION_INPUT, GOODS_RECEIPT, DISPATCH
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False)
+    order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True
+    )
+    production_order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("mfg_production_orders.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True
+    )
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("auth_users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True
+    )
+    performed_by: Mapped[str] = mapped_column(String(150), default="Sistem", nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    item: Mapped["Item"] = relationship("Item", lazy="selectin")
+    batch_lot: Mapped[Optional["BatchLot"]] = relationship("BatchLot", lazy="selectin")
 
 
 LotBatch = BatchLot

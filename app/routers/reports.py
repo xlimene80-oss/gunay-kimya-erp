@@ -19,6 +19,19 @@ from app.schemas.reports import (
 
 router = APIRouter(prefix="/reports", tags=["Employee & Sales Reporting"])
 
+def is_admin_or_manager(user: User) -> bool:
+    """Checks whether the user has administrator or management privileges to view all reports."""
+    if user.role == UserRoleEnum.ADMIN:
+        return True
+    user_role_names = [r.role_name.upper() for r in user.roles]
+    if any(adm in r for r in user_role_names for adm in ["ADMIN", "MUDUR", "MÜDÜR", "YONETICI", "YÖNETICI", "YONETIM", "YÖNETIM"]):
+        return True
+    if user.department and user.department.code.upper() in ["YONETIM", "ADMIN"]:
+        return True
+    if user.has_permission("reports_employee", "approve") or user.has_permission("reports_employee", "delete"):
+        return True
+    return False
+
 @router.post("/employee", response_model=EmployeeReportResponse, status_code=status.HTTP_201_CREATED)
 async def submit_employee_report(
     report_in: EmployeeReportCreate,
@@ -45,7 +58,7 @@ async def submit_employee_report(
 
 @router.get("/employee", response_model=List[EmployeeReportResponse])
 async def list_employee_reports(
-    user_id: Optional[int] = Query(None, description="Filtrelemek istenen kullanıcı ID (sadece admin)"),
+    user_id: Optional[int] = Query(None, description="Filtrelemek istenen kullanıcı ID (sadece admin ve yöneticiler)"),
     report_type: Optional[str] = Query(None, description="Gunluk, Aylik, Satis, Saha"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -53,27 +66,32 @@ async def list_employee_reports(
     current_user: User = Depends(get_current_user)
 ):
     """
-    List employee activity reports. Staff members see their own reports; Admins see all.
+    List employee activity reports.
+    - Each user only sees their own reports. If a non-admin/manager requests another user's ID, returns HTTP 403.
+    - Admins and authorized managers can view all reports or filter by user_id.
     """
     if current_user.role == UserRoleEnum.CUSTOMER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim.")
 
-    user_role_names = [r.role_name for r in current_user.roles]
-    is_admin = "ADMIN" in user_role_names or current_user.role == UserRoleEnum.ADMIN
+    has_mgr_access = is_admin_or_manager(current_user)
 
-    stmt = select(EmployeeReport).order_by(desc(EmployeeReport.created_at))
-
-    if not is_admin:
-        # Non-admins can only see their own submitted reports
-        stmt = stmt.where(EmployeeReport.user_id == current_user.id)
+    if not has_mgr_access:
+        # Non-admin/manager attempting to view another user's reports receives HTTP 403 Forbidden
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Yetkisiz erişim: Başka bir kullanıcının faaliyet raporlarını görüntüleme yetkiniz bulunmamaktadır."
+            )
+        stmt = select(EmployeeReport).where(EmployeeReport.user_id == current_user.id)
     else:
+        stmt = select(EmployeeReport)
         if user_id is not None:
             stmt = stmt.where(EmployeeReport.user_id == user_id)
 
     if report_type:
         stmt = stmt.where(EmployeeReport.report_type == report_type)
 
-    stmt = stmt.offset(offset).limit(limit)
+    stmt = stmt.order_by(desc(EmployeeReport.created_at)).offset(offset).limit(limit)
     res = await db.execute(stmt)
     return res.scalars().all()
 
@@ -90,10 +108,12 @@ async def get_employee_report(
     if not rep:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rapor bulunamadı.")
 
-    user_role_names = [r.role_name for r in current_user.roles]
-    is_admin = "ADMIN" in user_role_names or current_user.role == UserRoleEnum.ADMIN
-    if not is_admin and rep.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yetkisiz erişim: Başka bir personele ait rapor görüntülenemez.")
+    has_mgr_access = is_admin_or_manager(current_user)
+    if not has_mgr_access and rep.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Yetkisiz erişim: Başka bir personele ait rapor görüntülenemez."
+        )
 
     return rep
 

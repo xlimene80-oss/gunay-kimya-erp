@@ -33,7 +33,7 @@ export const viewMetaMap: Record<string, NavMeta> = {
   },
   quotes: {
     group: 'CRM VE SİPARİŞ',
-    item: 'Teklifler',
+    item: 'Teklifler & Proforma',
     badge: 'Proforma & Satış'
   },
   orders: {
@@ -201,9 +201,9 @@ export const viewMetaMap: Record<string, NavMeta> = {
     badge: 'Mesai Kartı'
   },
   reports_employee: {
-    group: 'İNSAN KAYNAKLARI',
-    item: 'Personel Raporları',
-    badge: 'Saha & Faaliyet'
+    group: 'GENEL',
+    item: 'Faaliyet Raporlarım',
+    badge: 'Günlük & Saha'
   },
 
   // 10. Ayarlar (Sadece Admin)

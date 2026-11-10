@@ -14,7 +14,6 @@ import {
   Package,
   Layers,
   Warehouse,
-  ScanBarcode,
   Barcode,
   FileCheck2,
   Building2,
@@ -76,7 +75,6 @@ const viewPermissionMap: Record<string, string> = {
   products_sds_warning: 'inventory',
   inventory_stock: 'inventory',
   warehouse_layout: 'inventory',
-  scanner: 'inventory',
   // Planlama ve Üretim
   factory_dashboard: 'manufacturing',
   mrp: 'manufacturing',
@@ -103,7 +101,7 @@ const viewPermissionMap: Record<string, string> = {
   hr_leave: 'hr',
   hr_attendance: 'hr',
   hr_movements: 'hr',
-  reports_employee: 'hr',
+  reports_employee: 'reports_employee',
   // Ayarlar
   settings_users: 'users',
   settings_permissions: 'users',
@@ -160,7 +158,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       roles: ['admin', 'staff', 'muhasebe', 'depo', 'uretim', 'bayi'],
       items: []
     },
-    // 2. CRM ve Sipariş
+    // 2. Faaliyet Raporlarım (Ana menüde herkese görünen ayrı giriş)
+    {
+      id: 'employee_reports_group',
+      title: 'Faaliyet Raporlarım',
+      icon: FileText,
+      isDirectLink: true,
+      directViewId: 'reports_employee',
+      roles: ['admin', 'staff', 'muhasebe', 'depo', 'uretim', 'bayi', 'customer', 'ik', 'operator'],
+      items: []
+    },
+    // 3. CRM ve Sipariş
     {
       id: 'crm_orders',
       title: 'CRM ve Sipariş',
@@ -168,13 +176,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       roles: ['admin', 'muhasebe', 'staff', 'bayi', 'customer'],
       items: [
         { id: 'customers', label: 'Müşteriler', icon: Users, roles: ['admin', 'staff', 'muhasebe'] },
-        { id: 'quotes', label: 'Teklifler', icon: FileSpreadsheet, roles: ['admin', 'staff', 'muhasebe'] },
+        { id: 'quotes', label: 'Teklifler & Proforma', icon: FileSpreadsheet, roles: ['admin', 'staff', 'muhasebe', 'bayi', 'customer'] },
         { id: 'orders', label: 'Satış Siparişleri', icon: ShoppingBag, roles: ['admin', 'staff', 'muhasebe', 'bayi'] },
         { id: 'b2b', label: 'B2B Bayi Siparişleri', icon: Building2, roles: ['admin', 'bayi', 'customer', 'staff', 'muhasebe'] },
         { id: 'manual_orders_planning', label: 'Manuel Sipariş / Planlama', icon: Calendar, roles: ['admin', 'staff', 'muhasebe'] }
       ]
     },
-    // 3. Satın Alma
+    // 4. Satın Alma
     {
       id: 'procurement',
       title: 'Satın Alma',
@@ -186,7 +194,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'goods_receipt', label: 'Mal Kabul', icon: FileCheck2, roles: ['admin', 'depo', 'staff', 'muhasebe'] }
       ]
     },
-    // 4. Envanter
+    // 5. Envanter
     {
       id: 'inventory',
       title: 'Envanter',
@@ -196,11 +204,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'products_raw_materials', label: 'Ürünler (Mamul)', icon: Layers, roles: ['admin', 'depo', 'staff'] },
         { id: 'products_sds_warning', label: 'Hammaddeler (SDS/GHS)', icon: FlaskConical, roles: ['admin', 'depo', 'staff'] },
         { id: 'inventory_stock', label: 'Stok Durumu (Lot/FEFO)', icon: Package, roles: ['admin', 'depo', 'staff'] },
-        { id: 'warehouse_layout', label: 'Depo Hareketleri', icon: Warehouse, roles: ['admin', 'depo'] },
-        { id: 'scanner', label: 'Sayım / El Terminali', icon: ScanBarcode, roles: ['admin', 'depo'] }
+        { id: 'warehouse_layout', label: 'Depo Hareketleri', icon: Warehouse, roles: ['admin', 'depo'] }
       ]
     },
-    // 5. Planlama ve Üretim
+    // 6. Planlama ve Üretim
     {
       id: 'manufacturing_planning',
       title: 'Planlama ve Üretim',
@@ -214,7 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'packaging_station', label: 'İş İstasyonu / Parti', icon: PackageCheck, roles: ['admin', 'uretim', 'operator', 'fabrika_muduru'] }
       ]
     },
-    // 6. Kalite (Üretimden AYRI grup)
+    // 7. Kalite (Üretimden AYRI grup)
     {
       id: 'quality_management',
       title: 'Kalite',
@@ -227,7 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'traceability', label: 'İzlenebilirlik', icon: ShieldAlert, roles: ['admin', 'uretim', 'fabrika_muduru', 'staff', 'kalite'] }
       ]
     },
-    // 7. Lojistik
+    // 8. Lojistik
     {
       id: 'logistics_group',
       title: 'Lojistik',
@@ -238,7 +245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'tracking', label: 'Sipariş & Sevkiyat Takip', icon: Activity, roles: ['admin', 'staff', 'muhasebe', 'depo', 'bayi', 'customer'] }
       ]
     },
-    // 8. Finans
+    // 9. Finans
     {
       id: 'finance',
       title: 'Finans',
@@ -251,7 +258,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'dashboard', label: 'Raporlar', icon: LayoutDashboard, roles: ['admin', 'muhasebe'] }
       ]
     },
-    // 9. İnsan Kaynakları (Admin ve İK Departmanı)
+    // 10. İnsan Kaynakları (Admin ve İK Departmanı)
     {
       id: 'human_resources',
       title: 'İnsan Kaynakları',
@@ -262,11 +269,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'hr_personnel', label: 'Personel', icon: UserCheck, roles: ['admin', 'ik', 'staff'] },
         { id: 'hr_leave', label: 'İzinler', icon: Calendar, roles: ['admin', 'ik', 'staff'] },
         { id: 'hr_attendance', label: 'Puantaj', icon: Calendar, roles: ['admin', 'ik', 'staff'] },
-        { id: 'hr_movements', label: 'Personel Hareketleri', icon: Layers, roles: ['admin', 'ik', 'staff'] },
-        { id: 'reports_employee', label: 'Faaliyet Raporları', icon: FileText, roles: ['admin', 'ik', 'staff'] }
+        { id: 'hr_movements', label: 'Personel Hareketleri', icon: Layers, roles: ['admin', 'ik', 'staff'] }
       ]
     },
-    // 10. Ayarlar (Sadece Admin / Firma Sahibi)
+    // 11. Ayarlar (Sadece Admin / Firma Sahibi)
     {
       id: 'settings_group',
       title: 'Ayarlar',
@@ -283,14 +289,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Helper to find which group contains an active view ID
   const findGroupIdForView = (viewId: string): string | null => {
     if (viewId === 'ana_panel' || viewId === 'main_dashboard') return 'ana_panel_group';
+    if (viewId === 'reports_employee') return 'employee_reports_group';
     if (['customers', 'quotes', 'orders', 'b2b', 'manual_orders_planning'].includes(viewId)) return 'crm_orders';
     if (['suppliers', 'purchasing_requests', 'goods_receipt'].includes(viewId)) return 'procurement';
-    if (['products_raw_materials', 'products_sds_warning', 'inventory_stock', 'warehouse_layout', 'scanner'].includes(viewId)) return 'inventory';
+    if (['products_raw_materials', 'products_sds_warning', 'inventory_stock', 'warehouse_layout'].includes(viewId)) return 'inventory';
     if (['factory_dashboard', 'mrp', 'bom_management', 'pallet_box_center', 'packaging_station'].includes(viewId)) return 'manufacturing_planning';
     if (['quality_pending', 'quality_templates', 'quality_coas', 'traceability'].includes(viewId)) return 'quality_management';
     if (['logistics', 'tracking'].includes(viewId)) return 'logistics_group';
     if (['fin_invoices', 'fin_payments', 'fin_accounts', 'dashboard', 'fin_reports', 'customers_finance'].includes(viewId)) return 'finance';
-    if (['hr_leave', 'hr_attendance', 'hr_interviews', 'hr_personnel', 'hr_movements', 'reports_employee'].includes(viewId)) return 'human_resources';
+    if (['hr_leave', 'hr_attendance', 'hr_interviews', 'hr_personnel', 'hr_movements'].includes(viewId)) return 'human_resources';
     if (['settings_users', 'settings_permissions', 'settings_system', 'user_management'].includes(viewId)) return 'settings_group';
 
     for (const group of menuGroups) {
@@ -307,7 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Sync open group automatically whenever currentView changes
   useEffect(() => {
     const matchedGroupId = findGroupIdForView(currentView);
-    if (matchedGroupId && matchedGroupId !== 'ana_panel_group') {
+    if (matchedGroupId && matchedGroupId !== 'ana_panel_group' && matchedGroupId !== 'employee_reports_group') {
       setOpenGroupId(matchedGroupId);
     }
   }, [currentView]);
@@ -321,8 +328,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Role rules:
   // - Admin: Sees all modules and items
   // - Bayi (B2B): Only CRM ve Sipariş (B2B + Siparişler) + Lojistik (tracking)
-  // - Operator: Only Üretim (Barkod, Emirler, İş İstasyonu) + Envanter (Terminal)
-  // - Muhasebe: Finans + CRM (Sipariş/Müşteri) + Satın Alma + Lojistik
+  // - Operator: Only Üretim (Barkod, Emirler, İş İstasyonu) + Ana Panel & Faaliyet Raporlarım
+  // - Muhasebe: Finans + CRM (Sipariş/Müşteri) + Satın Alma + Lojistik + Faaliyet Raporlarım
   // - İK & Ayarlar: Admin only
   const filterGroupsByRole = (): MenuGroup[] => {
     if (isAdmin) {
@@ -347,23 +354,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (isOperator) {
-      // Operatör: üretim barkod/terminal/üretim emri/iş istasyonu
-      return menuGroups
+      // Operatör: üretim barkod/üretim emri/iş istasyonu + Ana Panel & Faaliyet Raporlarım
+      const opGroups = menuGroups
         .filter((g) => g.id === 'manufacturing_planning' || g.id === 'inventory')
         .map((g) => ({
           ...g,
           items: g.items.filter((it) =>
-            ['pallet_box_center', 'factory_dashboard', 'packaging_station', 'scanner'].includes(it.id)
+            ['pallet_box_center', 'factory_dashboard', 'packaging_station'].includes(it.id)
           )
         }))
         .filter((g) => g.items.length > 0);
+
+      return [
+        menuGroups.find((g) => g.id === 'ana_panel_group')!,
+        menuGroups.find((g) => g.id === 'employee_reports_group')!,
+        ...opGroups
+      ].filter(Boolean);
     }
 
     if (isMuhasebe) {
-      // Muhasebe: finans + sipariş/mal kabul okuma + sevkiyat
+      // Muhasebe: finans + sipariş/mal kabul okuma + sevkiyat + Faaliyet Raporlarım
       return menuGroups
         .filter((g) =>
-          ['ana_panel_group', 'crm_orders', 'procurement', 'finance', 'logistics_group'].includes(g.id)
+          ['ana_panel_group', 'employee_reports_group', 'crm_orders', 'procurement', 'finance', 'logistics_group'].includes(g.id)
         )
         .map((g) => {
           if (g.isDirectLink) return g;
@@ -386,6 +399,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       .filter((g) => {
         if (g.id === 'settings_group') {
           return isAdmin;
+        }
+        if (g.id === 'employee_reports_group') {
+          return true;
         }
         if (g.id === 'human_resources') {
           const isIK = user?.department_code === 'IK' || userRolesStr.includes('ik') || hasPermission('hr', 'read');
@@ -422,6 +438,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       textColor: 'text-primary',
       border: 'border-primary-border',
       accentBorder: 'border-l-primary'
+    },
+    employee_reports_group: {
+      badgeBg: 'bg-indigo-500/10',
+      textColor: 'text-indigo-600',
+      border: 'border-indigo-500/20',
+      accentBorder: 'border-l-indigo-600'
     },
     crm_orders: {
       badgeBg: 'bg-mod-satis-soft',
@@ -501,6 +523,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isGroupActive = (group: MenuGroup): boolean => {
     if (group.isDirectLink) {
+      if (group.directViewId) {
+        return currentView === group.directViewId;
+      }
       return currentView === 'ana_panel' || currentView === 'main_dashboard';
     }
     return openGroupId === group.id || group.items.some((it) => isSubItemActive(it.id));
@@ -560,19 +585,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               const isActive = isGroupActive(group);
               const colorConfig = groupColorMap[group.id] || groupColorMap.ana_panel_group;
 
-              // 1. Ana Panel (Direct Click - No Accordion Submenu)
+              // Direct Links (Ana Panel & Faaliyet Raporlarım - No Accordion Submenu)
               if (group.isDirectLink) {
-                const isAnaPanelActive = currentView === 'ana_panel' || currentView === 'main_dashboard';
+                const targetView = group.directViewId || 'ana_panel';
                 return (
                   <button
                     key={group.id}
                     onClick={() => {
                       setOpenGroupId(null);
-                      onNavigate('ana_panel');
+                      onNavigate(targetView);
                       onCloseMobile?.();
                     }}
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${
-                      isAnaPanelActive
+                      isActive
                         ? `${colorConfig.badgeBg} ${colorConfig.textColor} shadow-sm border border-primary/20`
                         : 'text-text hover:bg-bg border border-transparent'
                     }`}

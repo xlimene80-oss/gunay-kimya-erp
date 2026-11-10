@@ -114,6 +114,11 @@ class ProductionOrder(Base, TimestampMixin):
         index=True, 
         nullable=True
     )
+    order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), 
+        index=True, 
+        nullable=True
+    )
     phase: Mapped[str] = mapped_column(String(50), default="SIPARIS_ALINDI", nullable=False)
     reactor_name: Mapped[Optional[str]] = mapped_column(String(100), default="Reaktör-01 (Paslanmaz Mikser)", nullable=True)
     carbon_footprint_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=True)

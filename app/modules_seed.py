@@ -6,7 +6,8 @@ import logging
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from app.core.config import async_session_factory, engine
-from app.models.auth import Role, ModulePermission, User
+from app.models.auth import Role, ModulePermission, User, UserRoleEnum
+from app.models.proforma import ProformaQuote, ProformaQuoteItem, ProformaSetting
 from app.models.inventory import (
     Item, BatchLot, ItemCategory,
     BarcodeUnit, BarcodeType, BarcodeStatus,
@@ -815,14 +816,14 @@ async def seed_new_modules_data():
 
             print("[MODULES SEED] BOM and USD Production Costing demo records initialized successfully.")
 
-            # Seed chemical test products for orders & B2B
+            # Seed chemical test products for orders & B2B guarded by SEED_DEMO_DATA=1
             from app.models.orders import B2BBayiFiyatlari
-            sqlite_demo_seed = engine.url.get_backend_name().lower() == "sqlite"
+            should_seed_demo = os.getenv("SEED_DEMO_DATA", "").strip() in ("1", "true", "True")
             test_prods = [
                 ("GK-M-01", "Limon Kolonyası 80° (5L Bidon)", "Bidon (5L)", Decimal("450.00"), Decimal("400.00")),
                 ("GK-M-02", "Limon Kolonyası 80° (1L Şişe)", "Şişe (1L)", Decimal("110.00"), Decimal("95.00")),
                 ("GK-M-03", "Dezenfektan Sprey (500ml)", "Şişe (500ml)", Decimal("65.00"), Decimal("65.00")),
-            ] if sqlite_demo_seed else []
+            ] if should_seed_demo else []
             for t_sku, t_name, t_unit, t_lp, t_bp in test_prods:
                 it = (await session.execute(select(Item).where(Item.sku == t_sku))).scalar_one_or_none()
                 if not it:
@@ -839,7 +840,7 @@ async def seed_new_modules_data():
                 if not bl:
                     bl = BatchLot(
                         batch_number=f"LOT-{t_sku}-INIT", item_id=it.id, warehouse="Mamul Ürün Deposu",
-                        quantity=Decimal("100.000"), status="Serbest", expiration_date=datetime.date(2028, 12, 31)
+                        quantity=Decimal("100.000"), rezerv_miktar=Decimal("0.000"), status="Serbest", expiration_date=datetime.date(2028, 12, 31)
                     )
                     session.add(bl)
 
@@ -849,19 +850,19 @@ async def seed_new_modules_data():
                 else:
                     b_row.special_price = t_bp
 
-            # Chemical raw materials used by the demo inventory and AI stock summaries.
+            # Chemical raw materials used by the demo inventory guarded by SEED_DEMO_DATA=1
             demo_raw_materials = [
                 ("GK-H-01", "Etil Alkol 96°", "kg"),
                 ("GK-H-02", "Limon Esansı", "kg"),
                 ("GK-H-03", "Denatonyum Benzoat", "kg"),
-            ] if sqlite_demo_seed else []
+            ] if should_seed_demo else []
             for raw_sku, raw_name, raw_unit in demo_raw_materials:
                 raw_item = (await session.execute(select(Item).where(Item.sku == raw_sku))).scalar_one_or_none()
                 if not raw_item:
                     raw_item = Item(
                         sku=raw_sku, name=raw_name, unit=raw_unit,
                         category=ItemCategory.RAW_MATERIAL, list_price=Decimal("0.00"),
-                        min_stock=Decimal("10.000"), is_active=True,
+                        min_stock=Decimal("10.000"), rezerv_miktar=Decimal("0.000"), is_active=True,
                     )
                     session.add(raw_item)
                     await session.flush()
@@ -874,8 +875,142 @@ async def seed_new_modules_data():
                     session.add(BatchLot(
                         batch_number=f"LOT-{raw_sku}-INIT", item_id=raw_item.id,
                         warehouse="Hammadde Deposu", quantity=Decimal("100.000"),
-                        status="Serbest", expiration_date=datetime.date(2028, 12, 31),
+                        rezerv_miktar=Decimal("0.000"), status="Serbest", expiration_date=datetime.date(2028, 12, 31),
                     ))
+
+            # Demo recipe for GK-M-01 using GK-H-01, GK-H-02, GK-H-03
+            if should_seed_demo:
+                gkm01 = (await session.execute(select(Item).where(Item.sku == "GK-M-01"))).scalar_one_or_none()
+                gkh01 = (await session.execute(select(Item).where(Item.sku == "GK-H-01"))).scalar_one_or_none()
+                gkh02 = (await session.execute(select(Item).where(Item.sku == "GK-H-02"))).scalar_one_or_none()
+                gkh03 = (await session.execute(select(Item).where(Item.sku == "GK-H-03"))).scalar_one_or_none()
+                if gkm01 and gkh01 and gkh02 and gkh03:
+                    rec_chk = (await session.execute(select(Recipe).where(Recipe.output_item_id == gkm01.id))).scalars().first()
+                    if not rec_chk:
+                        rec_kolonya = Recipe(
+                            name="Limon Kolonyası 80° Reçetesi (1 Bidon - 5L)",
+                            description="5L Bidon Limon Kolonyası standart üretim formülü",
+                            output_item_id=gkm01.id,
+                            base_quantity=Decimal("1.000")
+                        )
+                        session.add(rec_kolonya)
+                        await session.flush()
+                        session.add(RecipeIngredient(recipe_id=rec_kolonya.id, raw_material_item_id=gkh01.id, required_quantity=Decimal("4.000")))
+                        session.add(RecipeIngredient(recipe_id=rec_kolonya.id, raw_material_item_id=gkh02.id, required_quantity=Decimal("0.250")))
+                        session.add(RecipeIngredient(recipe_id=rec_kolonya.id, raw_material_item_id=gkh03.id, required_quantity=Decimal("0.020")))
+                        await session.flush()
+
+            # Seed Proforma Singleton Setting & Demo Quotes
+            p_setting = (await session.execute(select(ProformaSetting).where(ProformaSetting.id == 1))).scalar_one_or_none()
+            if not p_setting:
+                p_setting = ProformaSetting(
+                    id=1,
+                    max_discount_without_approval=Decimal("15.00"),
+                    company_name="GÜNAY KİMYA SAN. VE TİC. LTD. ŞTİ.",
+                    company_title="Endüstriyel Temizlik ve Kimyasal Üretim Çözümleri",
+                    company_address="Kemalpaşa OSB Mah. İzmir Cad. No: 42 Kemalpaşa / İZMİR",
+                    company_phone="+90 (232) 877 00 00",
+                    company_email="satis@gunaykimya.com",
+                    bank_name="Türkiye İş Bankası",
+                    bank_branch="Kemalpaşa Şubesi",
+                    iban_try="TR12 0006 4000 0013 4200 1234 56",
+                    iban_usd="TR34 0006 4000 0013 4200 1234 57",
+                    iban_eur="TR56 0006 4000 0013 4200 1234 58",
+                    default_validity_days=15,
+                    default_payment_terms="30 Gün Vade / Banka Havalesi",
+                    default_delivery_terms="Fabrika Teslim (EXW) - Kemalpaşa Depo"
+                )
+                session.add(p_setting)
+                await session.flush()
+
+            demo_prf_1 = (await session.execute(select(ProformaQuote).where(ProformaQuote.quote_number == "PRF-2026-0001"))).scalar_one_or_none()
+            if not demo_prf_1:
+                cari_ege = (await session.execute(select(CariAccount).where(CariAccount.code == "BAYI-001"))).scalar_one_or_none()
+                if not cari_ege:
+                    cari_ege = (await session.execute(select(CariAccount).order_by(CariAccount.id))).scalars().first()
+
+                admin_usr = (await session.execute(select(User).where(User.role == UserRoleEnum.ADMIN))).scalars().first()
+                item_sample = (await session.execute(select(Item).order_by(Item.id))).scalars().first()
+
+                if cari_ege and item_sample:
+                    today = datetime.date.today()
+                    valid_date = today + datetime.timedelta(days=15)
+
+                    # PRF-2026-0001: Sent (Gönderildi) - 10% discount (within limit), B2B bayi can view & accept/reject
+                    prf1 = ProformaQuote(
+                        quote_number="PRF-2026-0001",
+                        cari_id=cari_ege.id,
+                        created_by_id=admin_usr.id if admin_usr else None,
+                        quote_date=datetime.datetime.now(datetime.timezone.utc),
+                        valid_until=valid_date,
+                        status="Gönderildi",
+                        currency="TRY",
+                        exchange_rate=Decimal("1.0000"),
+                        discount_rate=Decimal("10.00"),
+                        discount_amount=Decimal("450.00"),
+                        subtotal=Decimal("4500.00"),
+                        tax_rate=Decimal("20.00"),
+                        tax_amount=Decimal("810.00"),
+                        grand_total=Decimal("4860.00"),
+                        payment_terms="30 Gün Vade / Havale",
+                        delivery_terms="Fabrika Teslim (EXW)",
+                        notes="Ege bölgesi bayimiz için özel kampanya fiyatlı proforma teklifidir.",
+                        requires_approval=False,
+                        approval_status="NONE"
+                    )
+                    session.add(prf1)
+                    await session.flush()
+                    session.add(ProformaQuoteItem(
+                        quote_id=prf1.id,
+                        item_id=item_sample.id,
+                        quantity=Decimal("10.000"),
+                        unit=item_sample.unit or "adet",
+                        unit_price=Decimal("450.00"),
+                        discount_rate=Decimal("0.00"),
+                        discount_amount=Decimal("0.00"),
+                        tax_rate=Decimal("20.00"),
+                        tax_amount=Decimal("810.00"),
+                        total_price=Decimal("4860.00")
+                    ))
+
+                    # PRF-2026-0002: Onay Bekliyor - 25% discount (exceeds 15% limit), needs Finance approval
+                    prf2 = ProformaQuote(
+                        quote_number="PRF-2026-0002",
+                        cari_id=cari_ege.id,
+                        created_by_id=admin_usr.id if admin_usr else None,
+                        quote_date=datetime.datetime.now(datetime.timezone.utc),
+                        valid_until=valid_date,
+                        status="Onay Bekliyor",
+                        currency="TRY",
+                        exchange_rate=Decimal("1.0000"),
+                        discount_rate=Decimal("25.00"),
+                        discount_amount=Decimal("2500.00"),
+                        subtotal=Decimal("10000.00"),
+                        tax_rate=Decimal("20.00"),
+                        tax_amount=Decimal("1500.00"),
+                        grand_total=Decimal("9000.00"),
+                        payment_terms="Peşin / Havale",
+                        delivery_terms="Adrese Teslim",
+                        notes="Yüksek hacimli sezon başlangıcı özel iskontolu teklif.",
+                        requires_approval=True,
+                        approval_status="PENDING",
+                        approval_notes="İskonto oranı (%25.00), tanımlı limiti (%15.00) aştığı için Finans/Yönetici onayı gerekmektedir."
+                    )
+                    session.add(prf2)
+                    await session.flush()
+                    session.add(ProformaQuoteItem(
+                        quote_id=prf2.id,
+                        item_id=item_sample.id,
+                        quantity=Decimal("20.000"),
+                        unit=item_sample.unit or "adet",
+                        unit_price=Decimal("500.00"),
+                        discount_rate=Decimal("0.00"),
+                        discount_amount=Decimal("0.00"),
+                        tax_rate=Decimal("20.00"),
+                        tax_amount=Decimal("1500.00"),
+                        total_price=Decimal("9000.00")
+                    ))
+                    await session.flush()
 
             await session.commit()
             print("[MODULES SEED SUCCESS] All demo and master data verified/seeded successfully.")

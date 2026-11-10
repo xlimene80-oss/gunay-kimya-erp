@@ -1,8 +1,11 @@
 import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from sqlalchemy import Integer, String, Text, ForeignKey, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.auth import User
 
 class EmployeeReport(Base, TimestampMixin):
     """
@@ -26,3 +29,11 @@ class EmployeeReport(Base, TimestampMixin):
 
     # Relationships
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="selectin")
+
+    @property
+    def author_name(self) -> Optional[str]:
+        return self.user.full_name if self.user else None
+
+    @property
+    def user_email(self) -> Optional[str]:
+        return self.user.email if self.user else None

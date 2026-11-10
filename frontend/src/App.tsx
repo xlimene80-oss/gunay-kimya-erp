@@ -3,11 +3,10 @@ import axios from 'axios';
 import {
   Activity,
   FileCheck2,
-  ScanBarcode,
+  FileText,
   WifiOff,
   ShieldAlert,
-  LayoutDashboard,
-  FileSpreadsheet
+  LayoutDashboard
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Login } from './views/Login';
@@ -40,6 +39,7 @@ import { HRAttendance } from './views/HRAttendance';
 import { HRMovements } from './views/HRMovements';
 import { PurchasingManagement } from './views/PurchasingManagement';
 import { ManualOrdersPlanning } from './views/ManualOrdersPlanning';
+import { QuotesManagement } from './views/QuotesManagement';
 import { UserManagement } from './views/UserManagement';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
@@ -259,7 +259,7 @@ const MainShell: React.FC = () => {
     if (user) {
       if (isBayi && currentView !== 'b2b' && currentView !== 'orders' && currentView !== 'tracking') {
         setCurrentView('b2b');
-      } else if (isOperator && !['pallet_box_center', 'factory_dashboard', 'scanner', 'packaging_station'].includes(currentView)) {
+      } else if (isOperator && !['pallet_box_center', 'factory_dashboard', 'scanner', 'packaging_station', 'reports_employee'].includes(currentView)) {
         setCurrentView('pallet_box_center');
       }
     }
@@ -341,35 +341,7 @@ const MainShell: React.FC = () => {
 
                 {/* 2. CRM VE SİPARİŞ */}
                 {currentView === 'customers' && <CustomersManagement />}
-                {currentView === 'quotes' && (
-                  <div className="bg-surface rounded-2xl border border-border p-8 text-center max-w-2xl mx-auto my-8 shadow-sm">
-                    <div className="w-14 h-14 bg-primary-soft text-primary rounded-2xl flex items-center justify-center mx-auto mb-4 border border-primary-border">
-                      <FileSpreadsheet className="w-7 h-7" />
-                    </div>
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-primary bg-primary-soft px-2.5 py-1 rounded-full border border-primary-border">
-                      CRM & Satış Modülü
-                    </span>
-                    <h2 className="text-xl font-bold text-text mt-3">Müşteri Teklifleri & Proforma Yönetimi</h2>
-                    <p className="text-sm text-text-muted mt-2 leading-relaxed">
-                      Kimyasal hammadde ve mamul teklif hazırlama, dövizli fiyatlandırma ve onay süreçleri planlama aşamasındadır.
-                      Mevcut siparişleri yönetmek veya yeni sipariş oluşturmak için Satış Siparişleri ekranını kullanabilirsiniz.
-                    </p>
-                    <div className="mt-6 flex flex-wrap gap-3 justify-center">
-                      <button
-                        onClick={() => setCurrentView('orders')}
-                        className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-primary/90 transition"
-                      >
-                        Satış Siparişlerine Git
-                      </button>
-                      <button
-                        onClick={() => setCurrentView('manual_orders_planning')}
-                        className="px-4 py-2 bg-bg text-text text-xs font-bold rounded-xl border border-border hover:bg-surface transition"
-                      >
-                        Fiyat Listelerini İncele
-                      </button>
-                    </div>
-                  </div>
-                )}
+                {currentView === 'quotes' && <QuotesManagement />}
                 {currentView === 'orders' && <Orders />}
                 {currentView === 'b2b' && <B2BDashboard />}
                 {currentView === 'manual_orders_planning' && <ManualOrdersPlanning />}
@@ -496,15 +468,17 @@ const MainShell: React.FC = () => {
 
         <button
           onClick={() => {
-            setCurrentView(isBayi ? 'orders' : 'scanner');
+            setCurrentView(isBayi ? 'orders' : 'reports_employee');
             setIsMobileMenuOpen(false);
           }}
           className={`flex flex-col items-center justify-center min-h-[48px] min-w-[48px] flex-1 py-1 text-xs font-bold transition rounded-xl ${
-            currentView === 'scanner' ? 'text-primary bg-primary-soft/50' : 'text-text-muted hover:text-text'
+            currentView === 'reports_employee' || (isBayi && currentView === 'orders')
+              ? 'text-primary bg-primary-soft/50'
+              : 'text-text-muted hover:text-text'
           }`}
         >
-          <ScanBarcode className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] leading-tight font-bold">Terminal</span>
+          <FileText className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] leading-tight font-bold">{isBayi ? 'Siparişler' : 'Raporlarım'}</span>
         </button>
       </nav>
       {productionToast && (

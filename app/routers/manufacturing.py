@@ -21,8 +21,9 @@ from app.models.manufacturing import (
 from app.models.inventory import (
     Item, BatchLot, GoodsReceipt, GoodsReceiptItem,
     DispatchOrder, DispatchItem, BarcodeUnit, BarcodeType, BarcodeStatus, DispatchStatus,
-    LabelPrintLog, BarcodeSequence
+    LabelPrintLog, BarcodeSequence, StockMovement
 )
+from app.models.production_alerts import UretimEmri
 from app.core.events import trigger_production_completed_event
 from app.services.bom_engine import BOMEngine, is_status_approved
 from app.schemas.manufacturing import (
@@ -263,7 +264,14 @@ async def update_production_order_status(
         await db.refresh(order)
         return order
 
-    # Handle completion logic
+    # 1. Handle Start (IN_PROGRESS) logic: deduct raw materials from stock immediately (Requirement 3)
+    if new_status == ProductionStatus.IN_PROGRESS and order.status != ProductionStatus.IN_PROGRESS:
+        if not order.ingredient_consumptions:
+            user_name = "Operatör"
+            await BOMEngine.execute_fefo_consumption(db, order, performed_by=user_name)
+        order.phase = "REAKTORDE"
+
+    # 2. Handle completion logic: finished good stock entry & reservation transfer (Requirement 3)
     if new_status == ProductionStatus.COMPLETED:
         if order.status == ProductionStatus.COMPLETED:
             raise HTTPException(
@@ -278,9 +286,10 @@ async def update_production_order_status(
 
         recipe = order.recipe
 
-        # Step 1 & 2: Execute BOM Quality Validation and Dynamic FEFO Consumption
+        # Execute BOM Quality Validation and Dynamic FEFO Consumption if not already started
         if not order.ingredient_consumptions:
-            await BOMEngine.execute_fefo_consumption(db, order)
+            user_name = "Operatör"
+            await BOMEngine.execute_fefo_consumption(db, order, performed_by=user_name)
 
         finished_batch_number = order.lot_number or f"LOT-{order.order_number}"
         today = datetime.date.today()
@@ -316,6 +325,7 @@ async def update_production_order_status(
                 item_id=recipe.output_item_id,
                 warehouse="Mamul Ürün Deposu",
                 quantity=order.target_quantity,
+                rezerv_miktar=Decimal("0.000"),
                 expiration_date=expiration_date,
                 status=out_status,
                 qc_notes=out_qc_notes,
@@ -323,6 +333,34 @@ async def update_production_order_status(
                 total_material_cost_usd=order.total_material_cost_usd
             )
             db.add(output_batch)
+            await db.flush()
+
+        # Transfer reservation to linked sales order (Requirement 3)
+        if order.order_id:
+            output_batch.rezerv_miktar = (output_batch.rezerv_miktar or Decimal("0.000")) + order.target_quantity
+            out_item = recipe.output_item or await db.get(Item, recipe.output_item_id)
+            if out_item:
+                out_item.rezerv_miktar = (out_item.rezerv_miktar or Decimal("0.000")) + order.target_quantity
+            
+            stmt_ue = select(UretimEmri).where(
+                UretimEmri.order_id == order.order_id,
+                UretimEmri.item_id == recipe.output_item_id
+            )
+            ue = await db.scalar(stmt_ue)
+            if ue:
+                ue.status = "Tamamlandı"
+
+        # Record to StockMovement ledger (Requirement 3)
+        db.add(StockMovement(
+            item_id=recipe.output_item_id,
+            batch_lot_id=output_batch.id,
+            movement_type="PRODUCTION_INPUT",
+            quantity=order.target_quantity,
+            production_order_id=order.id,
+            order_id=order.order_id,
+            performed_by="Operatör",
+            notes=f"Üretim emri #{order.order_number} tamamlandı, mamul stoğa girdi ve siparişe rezerve edildi (Lot: {output_batch.batch_number})"
+        ))
 
         # Step 4: Inter-Departmental Trigger A: Notify Warehouse (DEPO_SORUMLUSU)
         await trigger_production_completed_event(
@@ -1247,7 +1285,7 @@ async def start_production_fefo(
         raise HTTPException(status_code=400, detail="Reçete veya hammadde içerikleri tanımlı değil.")
 
     # Reçetedeki hammaddeleri BOMEngine ile doğrula ve FEFO ile çek
-    exec_result = await BOMEngine.execute_fefo_consumption(db, order)
+    exec_result = await BOMEngine.execute_fefo_consumption(db, order, performed_by="Operatör")
 
     # Karbon ayak izi katsayısı hesaplama
     emission_factors = {
@@ -1337,10 +1375,12 @@ async def advance_production_phase(
         msg = "Reçete hesaplandı, hammaddeler rezerve edildi."
 
     elif current_phase == "RECETE_HAZIR":
-        # Reaktöre aktar (FEFO stok çekimini otomatik tetikle)
+        # Reaktöre aktar (FEFO stok çekimini otomatik tetikle - Requirement 3)
         order.phase = "REAKTORDE"
         order.status = ProductionStatus.IN_PROGRESS
         order.lot_number = f"LOT-2026-GNY{order.id:04d}"
+        if not order.ingredient_consumptions:
+            await BOMEngine.execute_fefo_consumption(db, order, performed_by="Operatör")
         msg = "Hammaddeler FEFO ile depodan çekildi ve Reaktör-01 mikserine beslendi."
 
     elif current_phase == "REAKTORDE":
@@ -1349,7 +1389,7 @@ async def advance_production_phase(
         msg = "Reaktör sentezi tamamlandı. Dolum hattına ve pH / Viskozite kalite kontrolüne alındı."
 
     elif current_phase == "DOLUM_KALITE" or current_phase == "PAKETLEME_HAZIR":
-        # Paketleme & Hazır aşaması: AKILLI BARKODLARI ÜRET
+        # Paketleme & Hazır aşaması: AKILLI BARKODLARI ÜRET & MAMUL STOĞA GİRİŞ (Requirement 3)
         order.phase = "PAKETLEME_HAZIR"
         order.status = ProductionStatus.COMPLETED
 
@@ -1360,6 +1400,59 @@ async def advance_production_phase(
         order.box_barcode = box_barcode
         order.pallet_barcode = pallet_barcode
         order.lot_number = order.lot_number or f"LOT-2026-GNY{order.id:04d}"
+
+        # Mamul stoğa lot olarak girsin ve rezerv sipariş partisine aktarılsın (Requirement 3)
+        recipe = order.recipe
+        finished_batch_number = order.lot_number
+        today = datetime.date.today()
+        expiration_date = today + datetime.timedelta(days=730)
+        is_outgoing_qc = getattr(recipe.output_item, "qc_outgoing_required", False) if recipe.output_item else False
+        out_status = "Karantina" if is_outgoing_qc else "Serbest"
+        out_qc_notes = "Dolum tamamlandı: Çıkış kalite kontrol onayı bekleniyor." if is_outgoing_qc else "Üretim tamamlandı: Serbest."
+
+        output_batch = await db.scalar(
+            select(BatchLot).where(
+                and_(
+                    BatchLot.item_id == recipe.output_item_id,
+                    BatchLot.batch_number == finished_batch_number
+                )
+            )
+        )
+        if output_batch:
+            output_batch.quantity += order.target_quantity
+        else:
+            output_batch = BatchLot(
+                batch_number=finished_batch_number,
+                item_id=recipe.output_item_id,
+                warehouse="Mamul Ürün Deposu",
+                quantity=order.target_quantity,
+                rezerv_miktar=Decimal("0.000"),
+                expiration_date=expiration_date,
+                status=out_status,
+                qc_notes=out_qc_notes
+            )
+            db.add(output_batch)
+            await db.flush()
+
+        if order.order_id:
+            output_batch.rezerv_miktar = (output_batch.rezerv_miktar or Decimal("0.000")) + order.target_quantity
+            out_item = recipe.output_item or await db.get(Item, recipe.output_item_id)
+            if out_item:
+                out_item.rezerv_miktar = (out_item.rezerv_miktar or Decimal("0.000")) + order.target_quantity
+            ue = await db.scalar(select(UretimEmri).where(UretimEmri.order_id == order.order_id, UretimEmri.item_id == recipe.output_item_id))
+            if ue:
+                ue.status = "Tamamlandı"
+
+        db.add(StockMovement(
+            item_id=recipe.output_item_id,
+            batch_lot_id=output_batch.id,
+            movement_type="PRODUCTION_INPUT",
+            quantity=order.target_quantity,
+            production_order_id=order.id,
+            order_id=order.order_id,
+            performed_by="Operatör",
+            notes=f"Üretim emri #{order.order_number} tamamlandı, mamul stoğa girdi ve siparişe rezerve edildi (Lot: {output_batch.batch_number})"
+        ))
 
         # Palet Barkod Birimi Oluştur
         existing_pallet = await db.scalar(select(BarcodeUnit).where(BarcodeUnit.barcode_string == pallet_barcode))
