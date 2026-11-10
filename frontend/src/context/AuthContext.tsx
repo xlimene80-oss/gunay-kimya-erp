@@ -35,6 +35,25 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const TOKEN_KEY = 'gunay_kimya_auth_token';
 
+// Synchronously configure Authorization header on script load to eliminate SPA mount race condition
+if (typeof window !== 'undefined') {
+  const initialToken = sessionStorage.getItem(TOKEN_KEY);
+  if (initialToken) {
+    axios.defaults.headers.common['Authorization'] = `Bearer ${initialToken}`;
+  }
+}
+
+// Request interceptor ensuring every API call carries the Bearer token
+axios.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const activeToken = sessionStorage.getItem(TOKEN_KEY);
+    if (activeToken && !config.headers['Authorization']) {
+      config.headers['Authorization'] = `Bearer ${activeToken}`;
+    }
+  }
+  return config;
+});
+
 // Helper function to decode JWT payload safely
 function decodeJwtPayload(token: string): any {
   try {

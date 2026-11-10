@@ -176,32 +176,40 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [usersRes, deptsRes, carisRes, metaRes] = await Promise.all([
-        axios.get('/api/v1/auth/users'),
-        axios.get('/api/v1/auth/departments'),
-        axios.get('/api/v1/caris/?cari_type=CUSTOMER&limit=300').catch(() => ({ data: [] })),
-        axios.get('/api/v1/auth/permissions/modules').catch(() => ({
-          data: { modules: [], actions: [] }
-        }))
+      const token = typeof window !== 'undefined' ? sessionStorage.getItem('gunay_kimya_auth_token') : null;
+      const authHeaders = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+
+      const [usersResult, deptsResult, carisResult, metaResult] = await Promise.allSettled([
+        axios.get('/api/v1/auth/users', authHeaders).catch(() => axios.get('/api/auth/users', authHeaders)),
+        axios.get('/api/v1/auth/departments', authHeaders).catch(() => axios.get('/api/auth/departments', authHeaders)),
+        axios.get('/api/v1/caris/?cari_type=CUSTOMER&limit=200', authHeaders).catch(() => axios.get('/api/caris/?cari_type=CUSTOMER&limit=200', authHeaders)),
+        axios.get('/api/v1/auth/permissions/modules', authHeaders).catch(() => axios.get('/api/auth/permissions/modules', authHeaders))
       ]);
 
-      setUsers(usersRes.data || []);
-      setDepartments(deptsRes.data || []);
-      setCaris(carisRes.data?.items || carisRes.data || []);
+      const usersData = usersResult.status === 'fulfilled' && usersResult.value?.data ? usersResult.value.data : [];
+      const deptsData = deptsResult.status === 'fulfilled' && deptsResult.value?.data ? deptsResult.value.data : [];
+      const carisData = carisResult.status === 'fulfilled' && carisResult.value?.data
+        ? (carisResult.value.data.items || carisResult.value.data)
+        : [];
+      const metaData = metaResult.status === 'fulfilled' && metaResult.value?.data ? metaResult.value.data : null;
 
-      if (metaRes.data?.modules && metaRes.data.modules.length > 0) {
-        setModules(metaRes.data.modules);
+      setUsers(Array.isArray(usersData) ? usersData : []);
+      setDepartments(Array.isArray(deptsData) ? deptsData : []);
+      setCaris(Array.isArray(carisData) ? carisData : []);
+
+      if (metaData?.modules && metaData.modules.length > 0) {
+        setModules(metaData.modules);
       }
-      if (metaRes.data?.actions && metaRes.data.actions.length > 0) {
-        setActionsList(metaRes.data.actions);
+      if (metaData?.actions && metaData.actions.length > 0) {
+        setActionsList(metaData.actions);
       }
 
       // Default selection for permissions matrix
-      if (deptsRes.data && deptsRes.data.length > 0 && selectedDeptIdForMatrix === '') {
-        setSelectedDeptIdForMatrix(deptsRes.data[0].id);
+      if (deptsData && deptsData.length > 0 && selectedDeptIdForMatrix === '') {
+        setSelectedDeptIdForMatrix(deptsData[0].id);
       }
-      if (usersRes.data && usersRes.data.length > 0 && selectedUserIdForMatrix === '') {
-        setSelectedUserIdForMatrix(usersRes.data[0].id);
+      if (usersData && usersData.length > 0 && selectedUserIdForMatrix === '') {
+        setSelectedUserIdForMatrix(usersData[0].id);
       }
     } catch (err: any) {
       console.error('Veri yüklenirken hata oluştu:', err);
@@ -588,16 +596,17 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
   // Filtered Users List
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
-      u.full_name.toLowerCase().includes(userSearch.toLowerCase()) ||
-      u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.full_name || '').toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.email || '').toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.user_code || '').toLowerCase().includes(userSearch.toLowerCase()) ||
       (u.department_name && u.department_name.toLowerCase().includes(userSearch.toLowerCase())) ||
       (u.cari_title && u.cari_title.toLowerCase().includes(userSearch.toLowerCase()));
 
     const matchesRole =
       userRoleFilter === 'ALL' ||
-      (userRoleFilter === 'ADMIN' && u.role === 'admin') ||
-      (userRoleFilter === 'STAFF' && u.role === 'staff') ||
-      (userRoleFilter === 'CUSTOMER' && u.role === 'customer');
+      (userRoleFilter === 'ADMIN' && (u.role === 'admin' || (u.roles || []).includes('ADMIN'))) ||
+      (userRoleFilter === 'STAFF' && (u.role === 'staff' || u.role === 'admin' || (u.roles || []).includes('ADMIN'))) ||
+      (userRoleFilter === 'CUSTOMER' && (u.role === 'customer' || !!u.cari_id));
 
     const matchesStatus =
       userStatusFilter === 'ALL' ||
@@ -712,6 +721,65 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
       {/* ========================================================================= */}
       {activeTab === 'users' && (
         <div className="space-y-4">
+          {/* Sub-Tabs: Şirket İçi Personel / B2B Müşteri / Bayi / Tümü */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-3.5 rounded-xl border border-border shadow-sm">
+            <div className="flex items-center gap-1.5 p-1 bg-bg border border-border rounded-xl">
+              <button
+                type="button"
+                onClick={() => setUserRoleFilter('ALL')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  userRoleFilter === 'ALL'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-text-muted hover:text-text hover:bg-surface'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Tüm Kullanıcılar</span>
+                <span className="text-[10px] opacity-80 font-mono">({users.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserRoleFilter('STAFF')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  userRoleFilter === 'STAFF' || userRoleFilter === 'ADMIN'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-text-muted hover:text-text hover:bg-surface'
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Şirket İçi Personel</span>
+                <span className="text-[10px] opacity-80 font-mono">
+                  ({users.filter((u) => u.role === 'staff' || u.role === 'admin' || (u.roles || []).includes('ADMIN')).length})
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserRoleFilter('CUSTOMER')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  userRoleFilter === 'CUSTOMER'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-text hover:bg-surface'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>B2B Müşteri / Bayi</span>
+                <span className="text-[10px] opacity-80 font-mono">
+                  ({users.filter((u) => u.role === 'customer' || !!u.cari_id).length})
+                </span>
+              </button>
+            </div>
+
+            {canCreateUser && (
+              <button
+                onClick={openCreateUserModal}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition active:scale-95 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Yeni Kullanıcı Ekle</span>
+              </button>
+            )}
+          </div>
+
           {/* Action Bar & Filters */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-surface p-4 rounded-xl border border-border">
             <div className="flex flex-wrap items-center gap-2 flex-1">
@@ -719,7 +787,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                 <input
                   type="text"
-                  placeholder="Kullanıcı ara (isim, e-posta, cari)..."
+                  placeholder="Kullanıcı ara (isim, e-posta, kod, cari)..."
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-1.5 text-xs bg-bg border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-primary"
@@ -761,16 +829,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({ currentView, onN
                 <option value="PASSIVE">Yalnızca Pasif</option>
               </select>
             </div>
-
-            {canCreateUser && (
-              <button
-                onClick={openCreateUserModal}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#241a63] transition active:scale-95 shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Yeni Kullanıcı Ekle</span>
-              </button>
-            )}
           </div>
 
           {/* Users Table */}
